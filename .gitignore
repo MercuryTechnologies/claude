@@ -1,0 +1,6 @@
+.direnv
+dist-newstyle
+.envrc
+.DS_Store
+openapi.documented.yml
+.notes/
