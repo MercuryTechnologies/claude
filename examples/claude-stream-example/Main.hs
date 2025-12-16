@@ -40,9 +40,7 @@ main = do
                 [ Messages.Message
                     { Messages.role = Messages.User
                     , Messages.content =
-                        [ Messages.Content_Text
-                            { Messages.text = "Write a short haiku about the sea."
-                            }
+                        [ Messages.textContent "Write a short haiku about the sea."
                         ]
                     }
                 ]

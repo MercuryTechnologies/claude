@@ -34,8 +34,20 @@ module Claude.V1.Messages
     , InputJsonDelta(..)
     , MessageDelta(..)
     , StreamUsage(..)
+      -- * Token counting
+    , CountTokensRequest(..)
+    , _CountTokensRequest
+    , TokenCount(..)
+      -- * Prompt caching
+    , CacheControl(..)
+    , ephemeralCache
+      -- * Convenience constructors
+    , textContent
+    , imageContent
       -- * Servant
     , API
+    , MessagesAPI
+    , CountTokensAPI
     ) where
 
 import Claude.Prelude
@@ -48,8 +60,6 @@ import Claude.V1.Tool
     , toolChoiceAuto
     , toolChoiceTool
     )
-
-import qualified Data.Aeson as Aeson
 
 -- | Role of a message participant
 data Role = User | Assistant
@@ -73,6 +83,21 @@ instance FromJSON ImageSource where
 
 instance ToJSON ImageSource where
     toJSON = genericToJSON aesonOptions
+
+-- | Cache control for prompt caching
+data CacheControl = CacheControl
+    { type_ :: Text  -- ^ Currently only "ephemeral" is supported
+    } deriving stock (Generic, Show)
+
+instance FromJSON CacheControl where
+    parseJSON = genericParseJSON aesonOptions
+
+instance ToJSON CacheControl where
+    toJSON = genericToJSON aesonOptions
+
+-- | Convenience constructor for ephemeral cache control
+ephemeralCache :: CacheControl
+ephemeralCache = CacheControl{ type_ = "ephemeral" }
 
 -- | Text content block
 data TextContent = TextContent
@@ -103,11 +128,25 @@ instance ToJSON ToolResultContent where
 
 -- | Content block in a message (for requests)
 data Content
-    = Content_Text { text :: Text }
-    | Content_Image { source :: ImageSource }
+    = Content_Text
+        { text :: Text
+        , cache_control :: Maybe CacheControl
+        }
+    | Content_Image
+        { source :: ImageSource
+        , cache_control :: Maybe CacheControl
+        }
     | Content_Tool_Use { id :: Text, name :: Text, input :: Value }
     | Content_Tool_Result { tool_use_id :: Text, content :: Maybe Text, is_error :: Maybe Bool }
     deriving stock (Generic, Show)
+
+-- | Create a text content block without cache control
+textContent :: Text -> Content
+textContent t = Content_Text{ text = t, cache_control = Nothing }
+
+-- | Create an image content block without cache control
+imageContent :: ImageSource -> Content
+imageContent src = Content_Image{ source = src, cache_control = Nothing }
 
 contentOptions :: Options
 contentOptions = aesonOptions
@@ -351,8 +390,52 @@ instance FromJSON MessageStreamEvent where
 instance ToJSON MessageStreamEvent where
     toJSON = genericToJSON messageStreamEventOptions
 
+-- | Request body for @\/v1\/messages\/count_tokens@
+--
+-- Note: This differs from CreateMessage - it doesn't include max_tokens
+-- and other generation parameters.
+data CountTokensRequest = CountTokensRequest
+    { model :: Text
+    , messages :: Vector Message
+    , system :: Maybe Text
+    , tools :: Maybe (Vector Tool)
+    , tool_choice :: Maybe ToolChoice
+    } deriving stock (Generic, Show)
+
+instance FromJSON CountTokensRequest where
+    parseJSON = genericParseJSON aesonOptions
+
+instance ToJSON CountTokensRequest where
+    toJSON = genericToJSON aesonOptions
+
+-- | Default CountTokensRequest
+_CountTokensRequest :: CountTokensRequest
+_CountTokensRequest = CountTokensRequest
+    { model = ""
+    , messages = mempty
+    , system = Nothing
+    , tools = Nothing
+    , tool_choice = Nothing
+    }
+
+-- | Response from the token counting endpoint
+data TokenCount = TokenCount
+    { input_tokens :: Natural
+    } deriving stock (Generic, Show)
+      deriving anyclass (FromJSON, ToJSON)
+
 -- | Servant API for @\/v1\/messages@
+type MessagesAPI =
+        ReqBody '[JSON] CreateMessage
+    :>  Post '[JSON] MessageResponse
+
+-- | Servant API for @\/v1\/messages\/count_tokens@
+type CountTokensAPI =
+        "count_tokens"
+    :>  ReqBody '[JSON] CountTokensRequest
+    :>  Post '[JSON] TokenCount
+
+-- | Combined Servant API
 type API =
         "messages"
-    :>  ReqBody '[JSON] CreateMessage
-    :>  Post '[JSON] MessageResponse
+    :>  (MessagesAPI :<|> CountTokensAPI)

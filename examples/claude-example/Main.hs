@@ -29,7 +29,7 @@ main = do
         , messages =
             [ Message
                 { role = User
-                , content = [ Content_Text{ text } ]
+                , content = [ textContent text ]
                 }
             ]
         , max_tokens = 1024

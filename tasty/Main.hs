@@ -56,9 +56,7 @@ main = do
                                 [ Messages.Message
                                     { Messages.role = Messages.User
                                     , Messages.content =
-                                        [ Messages.Content_Text
-                                            { Messages.text = "Say hello in one word."
-                                            }
+                                        [ Messages.textContent "Say hello in one word."
                                         ]
                                     }
                                 ]
@@ -78,9 +76,7 @@ main = do
                                 [ Messages.Message
                                     { Messages.role = Messages.User
                                     , Messages.content =
-                                        [ Messages.Content_Text
-                                            { Messages.text = "What are you?"
-                                            }
+                                        [ Messages.textContent "What are you?"
                                         ]
                                     }
                                 ]
@@ -114,9 +110,7 @@ main = do
                             [ Messages.Message
                                 { Messages.role = Messages.User
                                 , Messages.content =
-                                    [ Messages.Content_Text
-                                        { Messages.text = "Write a haiku about code."
-                                        }
+                                    [ Messages.textContent "Write a haiku about code."
                                     ]
                                 }
                             ]
@@ -139,25 +133,19 @@ main = do
                                 [ Messages.Message
                                     { Messages.role = Messages.User
                                     , Messages.content =
-                                        [ Messages.Content_Text
-                                            { Messages.text = "My name is Alice."
-                                            }
+                                        [ Messages.textContent "My name is Alice."
                                         ]
                                     }
                                 , Messages.Message
                                     { Messages.role = Messages.Assistant
                                     , Messages.content =
-                                        [ Messages.Content_Text
-                                            { Messages.text = "Hello Alice! Nice to meet you."
-                                            }
+                                        [ Messages.textContent "Hello Alice! Nice to meet you."
                                         ]
                                     }
                                 , Messages.Message
                                     { Messages.role = Messages.User
                                     , Messages.content =
-                                        [ Messages.Content_Text
-                                            { Messages.text = "What is my name?"
-                                            }
+                                        [ Messages.textContent "What is my name?"
                                         ]
                                     }
                                 ]
@@ -192,9 +180,7 @@ main = do
                                 [ Messages.Message
                                     { Messages.role = Messages.User
                                     , Messages.content =
-                                        [ Messages.Content_Text
-                                            { Messages.text = "What is 15 + 27? Use the calculator tool."
-                                            }
+                                        [ Messages.textContent "What is 15 + 27? Use the calculator tool."
                                         ]
                                     }
                                 ]
@@ -214,12 +200,32 @@ main = do
                 let hasToolUse = any isToolUseBlock (toList content)
                 HUnit.assertBool "Should have tool_use content block" hasToolUse
 
+    let tokenCountingTest =
+            HUnit.testCase "Count tokens" do
+                Messages.TokenCount{ input_tokens } <-
+                    countTokens
+                        Messages._CountTokensRequest
+                            { Messages.model = model
+                            , Messages.messages =
+                                [ Messages.Message
+                                    { Messages.role = Messages.User
+                                    , Messages.content =
+                                        [ Messages.textContent "Hello, world!"
+                                        ]
+                                    }
+                                ]
+                            }
+
+                HUnit.assertBool "Should have positive token count"
+                    (input_tokens > 0)
+
     let tests =
             [ messagesMinimalTest
             , messagesWithSystemTest
             , messagesStreamingTest
             , messagesConversationTest
             , toolUseTest
+            , tokenCountingTest
             ]
 
     Tasty.defaultMain (Tasty.testGroup "Claude API Tests" tests)

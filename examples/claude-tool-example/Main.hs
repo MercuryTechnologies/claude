@@ -79,7 +79,7 @@ main = do
     -- Initial request asking about weather
     let initialMessage = Messages.Message
             { Messages.role = Messages.User
-            , Messages.content = [Messages.Content_Text{ Messages.text = "What's the weather like in San Francisco?" }]
+            , Messages.content = [Messages.textContent "What's the weather like in San Francisco?"]
             }
 
     Text.IO.putStrLn "Sending initial request with weather tool..."

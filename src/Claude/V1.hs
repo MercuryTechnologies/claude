@@ -55,13 +55,15 @@ module Claude.V1
     ) where
 
 import Claude.Prelude
-import Claude.V1.Messages (CreateMessage, MessageResponse, MessageStreamEvent)
+import Claude.V1.Messages (CountTokensRequest, CreateMessage, MessageResponse, MessageStreamEvent, TokenCount)
+import Claude.V1.Messages.Batches (BatchObject, CreateBatch, ListBatchesResponse)
 import Control.Monad (foldM)
 import Data.ByteString.Char8 ()
 import Data.Proxy (Proxy(..))
 import Servant.Client (ClientEnv)
 
 import qualified Claude.V1.Messages as Messages
+import qualified Claude.V1.Messages.Batches as Batches
 import qualified Control.Exception as Exception
 import qualified Data.Aeson as Aeson
 import qualified Data.ByteString as SBS
@@ -104,7 +106,8 @@ makeMethods
     -> Methods
 makeMethods clientEnv apiKey version = Methods{..}
   where
-    createMessage_ = Client.hoistClient @API Proxy run (Client.client @API Proxy) apiKey version
+    ((createMessage_ :<|> countTokens_) :<|> (createBatch_ :<|> retrieveBatch_ :<|> listBatches_ :<|> cancelBatch_)) =
+        Client.hoistClient @API Proxy run (Client.client @API Proxy) apiKey version
 
     run :: Client.ClientM a -> IO a
     run clientM = do
@@ -114,6 +117,11 @@ makeMethods clientEnv apiKey version = Methods{..}
             Right a -> return a
 
     createMessage = createMessage_
+    countTokens = countTokens_
+    createBatch = createBatch_
+    retrieveBatch = retrieveBatch_
+    listBatches = listBatches_
+    cancelBatch = cancelBatch_
 
     -- Streaming implementation using http-client and SSE parsing
     createMessageStream req onEvent = do
@@ -256,6 +264,16 @@ data Methods = Methods
         :: CreateMessage
         -> (Either Text MessageStreamEvent -> IO ())
         -> IO ()
+    , countTokens :: CountTokensRequest -> IO TokenCount
+      -- Batch methods
+    , createBatch :: CreateBatch -> IO BatchObject
+    , retrieveBatch :: Text -> IO BatchObject
+    , listBatches
+        :: Maybe Natural  -- ^ limit
+        -> Maybe Text     -- ^ before_id
+        -> Maybe Text     -- ^ after_id
+        -> IO ListBatchesResponse
+    , cancelBatch :: Text -> IO BatchObject
     }
 
 -- | Servant API
@@ -263,4 +281,4 @@ type API
     =   Header' [ Required, Strict ] "x-api-key" Text
     :>  Header' [ Optional, Strict ] "anthropic-version" Text
     :>  "v1"
-    :>  Messages.API
+    :>  (Messages.API :<|> Batches.API)
