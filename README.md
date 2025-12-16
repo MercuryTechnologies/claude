@@ -10,12 +10,9 @@ Haskell bindings to Anthropic's Claude API using `servant`.
 {-# LANGUAGE OverloadedLists       #-}
 {-# LANGUAGE OverloadedStrings     #-}
 
-module Main where
-
 import Claude.V1
 import Claude.V1.Messages
 import Data.Foldable (traverse_)
-
 import qualified Data.Text as Text
 import qualified Data.Text.IO as Text.IO
 import qualified System.Environment as Environment
@@ -23,27 +20,17 @@ import qualified System.Environment as Environment
 main :: IO ()
 main = do
     key <- Environment.getEnv "ANTHROPIC_KEY"
-
     clientEnv <- getClientEnv "https://api.anthropic.com"
-
     let Methods{ createMessage } = makeMethods clientEnv (Text.pack key) (Just "2023-06-01")
 
-    text <- Text.IO.getLine
-
     MessageResponse{ content } <- createMessage _CreateMessage
-        { model = "claude-sonnet-4-5"
-        , messages =
-            [ Message
-                { role = User
-                , content = [ Content_Text{ text } ]
-                }
-            ]
+        { model = "claude-sonnet-4-5-20250929"
+        , messages = [ Message{ role = User, content = [ textContent "Hello!" ] } ]
         , max_tokens = 1024
         }
 
-    let display (ContentBlock_Text{ text = t }) = Text.IO.putStrLn t
+    let display (ContentBlock_Text{ text }) = Text.IO.putStrLn text
         display _ = pure ()
-
     traverse_ display content
 ```
 
@@ -76,7 +63,7 @@ Set your Anthropic API key as an environment variable:
 export ANTHROPIC_KEY="your-anthropic-api-key"
 
 # Option 2: Using .envrc with direnv (recommended)
-(umask 077; cp .envrc.sample .envrc)
+cp .envrc.sample .envrc
 # Edit .envrc to add your API key
 direnv allow
 ```
@@ -94,12 +81,8 @@ cabal test
 ## Running the Examples
 
 ```bash
-# Make sure your API key is set (either via .envrc or export)
-# If using direnv with proper .envrc setup, this happens automatically
-
-# Build and run the example
 cabal run claude-example
-
-# Run the streaming example
 cabal run claude-stream-example
+cabal run claude-tool-example
+cabal run claude-vision-example
 ```
