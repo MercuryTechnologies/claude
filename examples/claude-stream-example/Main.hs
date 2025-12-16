@@ -35,7 +35,7 @@ main = do
 
     -- Simple haiku test
     let req = Messages._CreateMessage
-            { Messages.model = "claude-sonnet-4-20250514"
+            { Messages.model = "claude-sonnet-4-5"
             , Messages.messages =
                 [ Messages.Message
                     { Messages.role = Messages.User

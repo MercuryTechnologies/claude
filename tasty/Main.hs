@@ -14,7 +14,6 @@ import Prelude hiding (id)
 import qualified Claude.V1 as V1
 import qualified Claude.V1.Messages as Messages
 import qualified Control.Concurrent as Concurrent
-import qualified Data.Aeson as Aeson
 import qualified Data.IORef as IORef
 import qualified Data.Text as Text
 import qualified Network.HTTP.Client as HTTP.Client
@@ -40,7 +39,7 @@ main = do
 
     key <- Environment.getEnv "ANTHROPIC_KEY"
 
-    let model = "claude-sonnet-4-20250514"
+    let model = "claude-sonnet-4-5"
     let version = Just "2023-06-01"
     let Methods{..} = V1.makeMethods clientEnv (Text.pack key) version
 
