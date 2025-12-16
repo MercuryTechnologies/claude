@@ -20,10 +20,14 @@ module Claude.V1.Messages
       -- * Response types
     , StopReason(..)
     , Usage(..)
-      -- * Tool types
+      -- * Tool types (re-exported from Claude.V1.Tool)
     , Tool(..)
     , ToolChoice(..)
     , InputSchema(..)
+    , functionTool
+    , toolChoiceAuto
+    , toolChoiceAny
+    , toolChoiceTool
       -- * Streaming types
     , ContentBlockDelta(..)
     , TextDelta(..)
@@ -35,6 +39,15 @@ module Claude.V1.Messages
     ) where
 
 import Claude.Prelude
+import Claude.V1.Tool
+    ( InputSchema(..)
+    , Tool(..)
+    , ToolChoice(..)
+    , functionTool
+    , toolChoiceAny
+    , toolChoiceAuto
+    , toolChoiceTool
+    )
 
 import qualified Data.Aeson as Aeson
 
@@ -166,57 +179,6 @@ instance FromJSON Usage where
 
 instance ToJSON Usage where
     toJSON = genericToJSON aesonOptions
-
--- | Tool input schema (JSON Schema)
-data InputSchema = InputSchema
-    { type_ :: Text
-    , properties :: Maybe Value
-    , required :: Maybe (Vector Text)
-    } deriving stock (Generic, Show)
-
-instance FromJSON InputSchema where
-    parseJSON = genericParseJSON aesonOptions
-
-instance ToJSON InputSchema where
-    toJSON = genericToJSON aesonOptions
-
--- | A tool that can be used by Claude
-data Tool = Tool
-    { name :: Text
-    , description :: Maybe Text
-    , input_schema :: InputSchema
-    } deriving stock (Generic, Show)
-
-instance FromJSON Tool where
-    parseJSON = genericParseJSON aesonOptions
-
-instance ToJSON Tool where
-    toJSON = genericToJSON aesonOptions
-
--- | Controls which tool the model should use
-data ToolChoice
-    = ToolChoice_Auto
-    | ToolChoice_Any
-    | ToolChoice_Tool { name :: Text }
-    deriving stock (Generic, Show)
-
-instance FromJSON ToolChoice where
-    parseJSON (Aeson.Object o) = do
-        t <- o Aeson..: "type"
-        case (t :: Text) of
-            "auto" -> pure ToolChoice_Auto
-            "any" -> pure ToolChoice_Any
-            "tool" -> ToolChoice_Tool <$> o Aeson..: "name"
-            _ -> fail "Unknown tool choice type"
-    parseJSON _ = fail "Invalid tool choice"
-
-instance ToJSON ToolChoice where
-    toJSON ToolChoice_Auto = Aeson.object ["type" Aeson..= ("auto" :: Text)]
-    toJSON ToolChoice_Any = Aeson.object ["type" Aeson..= ("any" :: Text)]
-    toJSON (ToolChoice_Tool n) = Aeson.object
-        [ "type" Aeson..= ("tool" :: Text)
-        , "name" Aeson..= n
-        ]
 
 -- | Response from the Messages API
 data MessageResponse = MessageResponse

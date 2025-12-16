@@ -25,7 +25,7 @@ main = do
     text <- Text.IO.getLine
 
     MessageResponse{ content } <- createMessage _CreateMessage
-        { model = "claude-sonnet-4-5"
+        { model = "claude-sonnet-4-5-20250929"
         , messages =
             [ Message
                 { role = User

@@ -13,7 +13,10 @@ import Prelude hiding (id)
 
 import qualified Claude.V1 as V1
 import qualified Claude.V1.Messages as Messages
+import qualified Claude.V1.Tool as Tool
 import qualified Control.Concurrent as Concurrent
+import qualified Data.Aeson as Aeson
+import           Data.Foldable (toList)
 import qualified Data.IORef as IORef
 import qualified Data.Text as Text
 import qualified Network.HTTP.Client as HTTP.Client
@@ -39,7 +42,7 @@ main = do
 
     key <- Environment.getEnv "ANTHROPIC_KEY"
 
-    let model = "claude-sonnet-4-5"
+    let model = "claude-sonnet-4-5-20250929"
     let version = Just "2023-06-01"
     let Methods{..} = V1.makeMethods clientEnv (Text.pack key) version
 
@@ -164,11 +167,59 @@ main = do
                 HUnit.assertBool "Response should have content"
                     (not (null content))
 
+    let toolUseTest =
+            HUnit.testCase "Create message - tool use" do
+                let calculatorTool = Tool.Tool
+                        { Tool.name = "calculator"
+                        , Tool.description = Just "Perform basic arithmetic"
+                        , Tool.input_schema = Tool.InputSchema
+                            { Tool.type_ = "object"
+                            , Tool.properties = Just $ Aeson.object
+                                [ "expression" Aeson..= Aeson.object
+                                    [ "type" Aeson..= ("string" :: Text.Text)
+                                    , "description" Aeson..= ("Math expression like 2+2" :: Text.Text)
+                                    ]
+                                ]
+                            , Tool.required = Just ["expression"]
+                            }
+                        }
+
+                Messages.MessageResponse{ stop_reason, content } <-
+                    createMessage
+                        Messages._CreateMessage
+                            { Messages.model = model
+                            , Messages.messages =
+                                [ Messages.Message
+                                    { Messages.role = Messages.User
+                                    , Messages.content =
+                                        [ Messages.Content_Text
+                                            { Messages.text = "What is 15 + 27? Use the calculator tool."
+                                            }
+                                        ]
+                                    }
+                                ]
+                            , Messages.max_tokens = 200
+                            , Messages.tools = Just [calculatorTool]
+                            , Messages.tool_choice = Just Tool.ToolChoice_Any
+                            }
+
+                -- Should stop for tool use
+                HUnit.assertEqual "Should stop for tool use"
+                    (Just Messages.Tool_Use)
+                    stop_reason
+
+                -- Should have a tool_use content block
+                let isToolUseBlock (Messages.ContentBlock_Tool_Use{}) = True
+                    isToolUseBlock _ = False
+                let hasToolUse = any isToolUseBlock (toList content)
+                HUnit.assertBool "Should have tool_use content block" hasToolUse
+
     let tests =
             [ messagesMinimalTest
             , messagesWithSystemTest
             , messagesStreamingTest
             , messagesConversationTest
+            , toolUseTest
             ]
 
     Tasty.defaultMain (Tasty.testGroup "Claude API Tests" tests)
