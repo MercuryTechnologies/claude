@@ -24,6 +24,12 @@ module Claude.V1.Messages
       -- * Tool search response types
     , ToolReference(..)
     , ToolSearchToolResultContent(..)
+      -- * Programmatic tool calling (PTC) types
+    , ContainerInfo(..)
+    , ToolCaller(..)
+    , CodeExecutionResult(..)
+    , CodeExecutionToolResultContent(..)
+    , contentBlockToContent
       -- * Tool types (re-exported from Claude.V1.Tool)
     , Tool(..)
     , ToolChoice(..)
@@ -36,6 +42,9 @@ module Claude.V1.Messages
     , deferredTool
     , toolSearchRegex
     , toolSearchBm25
+    , codeExecutionTool
+    , allowedCallersCodeExecution
+    , allowCallers
     , toolChoiceAuto
     , toolChoiceAny
     , toolChoiceTool
@@ -69,6 +78,9 @@ import           Claude.V1.Tool
     , ToolDefinition(..)
     , ToolSearchTool(..)
     , ToolSearchToolType(..)
+    , allowCallers
+    , allowedCallersCodeExecution
+    , codeExecutionTool
     , deferredTool
     , functionTool
     , inlineTool
@@ -78,7 +90,9 @@ import           Claude.V1.Tool
     , toolSearchBm25
     , toolSearchRegex
     )
+import           Data.Time (UTCTime)
 import qualified Data.Aeson as Aeson
+import qualified Data.Aeson.KeyMap as KeyMap
 
 -- | Role of a message participant
 data Role = User | Assistant
@@ -146,6 +160,11 @@ instance ToJSON ToolResultContent where
     toJSON = genericToJSON aesonOptions
 
 -- | Content block in a message (for requests)
+--
+-- For programmatic tool calling (PTC), replay assistant messages using:
+--
+-- * 'Content_Tool_Use' with optional @caller@ field
+-- * 'Content_Server_Tool_Use' for code execution invocations
 data Content
     = Content_Text
         { text :: Text
@@ -155,7 +174,17 @@ data Content
         { source :: ImageSource
         , cache_control :: Maybe CacheControl
         }
-    | Content_Tool_Use { id :: Text, name :: Text, input :: Value }
+    | Content_Tool_Use
+        { id :: Text
+        , name :: Text
+        , input :: Value
+        , caller :: Maybe ToolCaller
+        }
+    | Content_Server_Tool_Use
+        { id :: Text
+        , name :: Text
+        , input :: Value
+        }
     | Content_Tool_Result { tool_use_id :: Text, content :: Maybe Text, is_error :: Maybe Bool }
     deriving stock (Generic, Show)
 
@@ -179,6 +208,36 @@ instance FromJSON Content where
 
 instance ToJSON Content where
     toJSON = genericToJSON contentOptions
+
+-- | Convert a response 'ContentBlock' to a request 'Content' for replaying
+--
+-- This is useful for programmatic tool calling (PTC) where you need to
+-- replay assistant messages in subsequent requests.
+--
+-- Returns 'Nothing' for content blocks that don't need to be replayed:
+--
+-- * 'ContentBlock_Tool_Search_Tool_Result'
+-- * 'ContentBlock_Code_Execution_Tool_Result'
+-- * 'ContentBlock_Unknown'
+contentBlockToContent :: ContentBlock -> Maybe Content
+contentBlockToContent (ContentBlock_Text t) =
+    Just Content_Text{ text = t, cache_control = Nothing }
+contentBlockToContent (ContentBlock_Tool_Use toolId toolName toolInput toolCaller) =
+    Just Content_Tool_Use
+        { id = toolId
+        , name = toolName
+        , input = toolInput
+        , caller = toolCaller
+        }
+contentBlockToContent (ContentBlock_Server_Tool_Use toolId toolName toolInput) =
+    Just Content_Server_Tool_Use
+        { id = toolId
+        , name = toolName
+        , input = toolInput
+        }
+contentBlockToContent ContentBlock_Tool_Search_Tool_Result{} = Nothing
+contentBlockToContent ContentBlock_Code_Execution_Tool_Result{} = Nothing
+contentBlockToContent ContentBlock_Unknown{} = Nothing
 
 -- | A reference to a tool found by tool search
 data ToolReference = ToolReference
@@ -228,19 +287,121 @@ instance ToJSON ToolSearchToolResultContent where
         ]
     toJSON (ToolSearchResultContent_Unknown v) = v
 
+-- | Container information for programmatic tool calling (PTC)
+--
+-- When using code execution, Claude runs code in a container. The container
+-- can be reused across multiple turns by passing its @id@ in subsequent requests.
+data ContainerInfo = ContainerInfo
+    { id :: Text
+    , expires_at :: UTCTime
+    } deriving stock (Eq, Generic, Show)
+
+instance FromJSON ContainerInfo where
+    parseJSON = genericParseJSON aesonOptions
+
+instance ToJSON ContainerInfo where
+    toJSON = genericToJSON aesonOptions
+
+-- | Identifies who called a tool (for programmatic tool calling)
+--
+-- * 'ToolCaller_Direct': Claude called the tool directly
+-- * 'ToolCaller_CodeExecution': Code execution called the tool programmatically
+-- * 'ToolCaller_Unknown': Unknown caller type (forward compatibility)
+data ToolCaller
+    = ToolCaller_Direct
+    | ToolCaller_CodeExecution { tool_id :: Text }
+    | ToolCaller_Unknown Value
+    deriving stock (Eq, Show)
+
+instance FromJSON ToolCaller where
+    parseJSON = Aeson.withObject "ToolCaller" $ \o -> do
+        t <- o Aeson..: "type"
+        case (t :: Text) of
+            "direct" -> pure ToolCaller_Direct
+            "code_execution_20250825" -> do
+                tool_id <- o Aeson..: "tool_id"
+                pure ToolCaller_CodeExecution{ tool_id }
+            _ -> pure (ToolCaller_Unknown (Aeson.Object o))
+
+instance ToJSON ToolCaller where
+    toJSON ToolCaller_Direct = Aeson.object
+        [ "type" Aeson..= ("direct" :: Text)
+        ]
+    toJSON (ToolCaller_CodeExecution tid) = Aeson.object
+        [ "type" Aeson..= ("code_execution_20250825" :: Text)
+        , "tool_id" Aeson..= tid
+        ]
+    toJSON (ToolCaller_Unknown v) = v
+
+-- | Result from code execution
+--
+-- Contains stdout, stderr, return code, and any additional content
+-- (e.g., generated files, images).
+data CodeExecutionResult = CodeExecutionResult
+    { stdout :: Text
+    , stderr :: Text
+    , return_code :: Int
+    , content :: Vector Value
+    } deriving stock (Eq, Generic, Show)
+
+instance FromJSON CodeExecutionResult where
+    parseJSON = genericParseJSON aesonOptions
+
+instance ToJSON CodeExecutionResult where
+    toJSON = genericToJSON aesonOptions
+
+-- | Content of a code execution tool result
+--
+-- * 'CodeExecutionResultContent': Successful execution with stdout/stderr
+-- * 'CodeExecutionToolResultContent_Unknown': Unknown content type (forward compatibility)
+data CodeExecutionToolResultContent
+    = CodeExecutionResultContent CodeExecutionResult
+    | CodeExecutionToolResultContent_Unknown Value
+    deriving stock (Eq, Show)
+
+instance FromJSON CodeExecutionToolResultContent where
+    parseJSON = Aeson.withObject "CodeExecutionToolResultContent" $ \o -> do
+        t <- o Aeson..: "type"
+        case (t :: Text) of
+            "code_execution_result" -> do
+                result <- Aeson.parseJSON (Aeson.Object o)
+                pure (CodeExecutionResultContent result)
+            _ -> pure (CodeExecutionToolResultContent_Unknown (Aeson.Object o))
+
+instance ToJSON CodeExecutionToolResultContent where
+    toJSON (CodeExecutionResultContent result) =
+        case Aeson.toJSON result of
+            Aeson.Object o -> Aeson.Object (KeyMap.insert "type" (Aeson.String "code_execution_result") o)
+            v -> v
+    toJSON (CodeExecutionToolResultContent_Unknown v) = v
+
 -- | Content block in a response
 --
--- Extended to support tool search response blocks:
+-- Extended to support:
 --
--- * @server_tool_use@: Server-initiated tool use (e.g., tool search)
+-- * @server_tool_use@: Server-initiated tool use (e.g., tool search, code execution)
 -- * @tool_search_tool_result@: Results from server-side tool search
+-- * @code_execution_tool_result@: Results from code execution (PTC)
+--
+-- For programmatic tool calling, 'ContentBlock_Tool_Use' includes an optional
+-- @caller@ field indicating whether the tool was called directly by Claude
+-- or programmatically by code execution.
 data ContentBlock
     = ContentBlock_Text { text :: Text }
-    | ContentBlock_Tool_Use { id :: Text, name :: Text, input :: Value }
+    | ContentBlock_Tool_Use
+        { id :: Text
+        , name :: Text
+        , input :: Value
+        , caller :: Maybe ToolCaller
+        }
     | ContentBlock_Server_Tool_Use { id :: Text, name :: Text, input :: Value }
     | ContentBlock_Tool_Search_Tool_Result
         { tool_use_id :: Text
-        , content :: ToolSearchToolResultContent
+        , tool_search_content :: ToolSearchToolResultContent
+        }
+    | ContentBlock_Code_Execution_Tool_Result
+        { tool_use_id :: Text
+        , code_execution_content :: CodeExecutionToolResultContent
         }
     | ContentBlock_Unknown { type_ :: Text, raw :: Value }
     deriving stock (Generic, Show)
@@ -254,13 +415,25 @@ instance FromJSON ContentBlock where
                 <$> o Aeson..: "id"
                 <*> o Aeson..: "name"
                 <*> o Aeson..: "input"
+                <*> o Aeson..:? "caller"
             "server_tool_use" -> ContentBlock_Server_Tool_Use
                 <$> o Aeson..: "id"
                 <*> o Aeson..: "name"
                 <*> o Aeson..: "input"
-            "tool_search_tool_result" -> ContentBlock_Tool_Search_Tool_Result
-                <$> o Aeson..: "tool_use_id"
-                <*> o Aeson..: "content"
+            "tool_search_tool_result" -> do
+                toolUseId <- o Aeson..: "tool_use_id"
+                searchContent <- o Aeson..: "content"
+                pure ContentBlock_Tool_Search_Tool_Result
+                    { tool_use_id = toolUseId
+                    , tool_search_content = searchContent
+                    }
+            "code_execution_tool_result" -> do
+                toolUseId <- o Aeson..: "tool_use_id"
+                execContent <- o Aeson..: "content"
+                pure ContentBlock_Code_Execution_Tool_Result
+                    { tool_use_id = toolUseId
+                    , code_execution_content = execContent
+                    }
             _ -> pure (ContentBlock_Unknown t (Aeson.Object o))
 
 instance ToJSON ContentBlock where
@@ -268,22 +441,27 @@ instance ToJSON ContentBlock where
         [ "type" Aeson..= ("text" :: Text)
         , "text" Aeson..= t
         ]
-    toJSON (ContentBlock_Tool_Use toolId toolName toolInput) = Aeson.object
+    toJSON (ContentBlock_Tool_Use toolId toolName toolInput toolCaller) = Aeson.object $
         [ "type" Aeson..= ("tool_use" :: Text)
         , "id" Aeson..= toolId
         , "name" Aeson..= toolName
         , "input" Aeson..= toolInput
-        ]
+        ] <> maybe [] (\c -> ["caller" Aeson..= c]) toolCaller
     toJSON (ContentBlock_Server_Tool_Use toolId toolName toolInput) = Aeson.object
         [ "type" Aeson..= ("server_tool_use" :: Text)
         , "id" Aeson..= toolId
         , "name" Aeson..= toolName
         , "input" Aeson..= toolInput
         ]
-    toJSON (ContentBlock_Tool_Search_Tool_Result toolUseId resultContent) = Aeson.object
+    toJSON (ContentBlock_Tool_Search_Tool_Result toolUseId searchContent) = Aeson.object
         [ "type" Aeson..= ("tool_search_tool_result" :: Text)
         , "tool_use_id" Aeson..= toolUseId
-        , "content" Aeson..= resultContent
+        , "content" Aeson..= searchContent
+        ]
+    toJSON (ContentBlock_Code_Execution_Tool_Result toolUseId execContent) = Aeson.object
+        [ "type" Aeson..= ("code_execution_tool_result" :: Text)
+        , "tool_use_id" Aeson..= toolUseId
+        , "content" Aeson..= execContent
         ]
     toJSON (ContentBlock_Unknown _typeName rawVal) = rawVal
 
@@ -349,6 +527,10 @@ instance ToJSON Usage where
     toJSON = genericToJSON aesonOptions
 
 -- | Response from the Messages API
+--
+-- For programmatic tool calling (PTC), the @container@ field contains
+-- information about the code execution container, which can be reused
+-- across turns by passing its @id@ in subsequent requests.
 data MessageResponse = MessageResponse
     { id :: Text
     , type_ :: Text
@@ -358,6 +540,7 @@ data MessageResponse = MessageResponse
     , stop_reason :: Maybe StopReason
     , stop_sequence :: Maybe Text
     , usage :: Usage
+    , container :: Maybe ContainerInfo
     } deriving stock (Generic, Show)
 
 instance FromJSON MessageResponse where
@@ -367,6 +550,9 @@ instance ToJSON MessageResponse where
     toJSON = genericToJSON aesonOptions
 
 -- | Request body for @\/v1\/messages@
+--
+-- For programmatic tool calling (PTC), use the @container@ field to reuse
+-- a code execution container from a previous response.
 data CreateMessage = CreateMessage
     { model :: Text
     , messages :: Vector Message
@@ -380,6 +566,7 @@ data CreateMessage = CreateMessage
     , metadata :: Maybe (Map Text Text)
     , tools :: Maybe (Vector ToolDefinition)
     , tool_choice :: Maybe ToolChoice
+    , container :: Maybe Text
     } deriving stock (Generic, Show)
 
 instance FromJSON CreateMessage where
@@ -403,6 +590,7 @@ _CreateMessage = CreateMessage
     , metadata = Nothing
     , tools = Nothing
     , tool_choice = Nothing
+    , container = Nothing
     }
 
 -- | Text delta in streaming

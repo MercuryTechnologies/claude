@@ -85,4 +85,13 @@ cabal run claude-example
 cabal run claude-stream-example
 cabal run claude-tool-example
 cabal run claude-vision-example
+cabal run claude-tool-search-example
+cabal run claude-programmatic-tool-calling-example
 ```
+
+### Advanced Examples
+
+The `claude-tool-search-example` and `claude-programmatic-tool-calling-example` demonstrate beta features that require the `advanced-tool-use-2025-11-20` beta header:
+
+- **Tool Search**: Server-side tool search for efficiently handling large numbers of tools
+- **Programmatic Tool Calling (PTC)**: Claude writes and executes code to call multiple tools and aggregate results

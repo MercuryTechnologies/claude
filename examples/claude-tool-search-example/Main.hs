@@ -190,7 +190,7 @@ printContent (Messages.ContentBlock_Tool_Use{ Messages.name = n, Messages.id = t
     Text.IO.putStrLn $ "  [tool_use] " <> n <> " (id: " <> tid <> ")"
 printContent (Messages.ContentBlock_Server_Tool_Use{ Messages.name = n, Messages.id = tid }) =
     Text.IO.putStrLn $ "  [server_tool_use] " <> n <> " (id: " <> tid <> ")"
-printContent (Messages.ContentBlock_Tool_Search_Tool_Result{ Messages.tool_use_id = tid, Messages.content = resultContent }) = do
+printContent (Messages.ContentBlock_Tool_Search_Tool_Result{ Messages.tool_use_id = tid, Messages.tool_search_content = resultContent }) = do
     Text.IO.putStrLn $ "  [tool_search_result] for tool_use_id: " <> tid
     case resultContent of
         Messages.ToolSearchResult{ Messages.tool_references = refs } -> do
@@ -201,5 +201,7 @@ printContent (Messages.ContentBlock_Tool_Search_Tool_Result{ Messages.tool_use_i
             Text.IO.putStrLn $ "    Error: " <> code
         Messages.ToolSearchResultContent_Unknown _ ->
             Text.IO.putStrLn "    Unknown result type"
+printContent (Messages.ContentBlock_Code_Execution_Tool_Result{ Messages.tool_use_id = tid }) =
+    Text.IO.putStrLn $ "  [code_execution_result] for tool_use_id: " <> tid
 printContent (Messages.ContentBlock_Unknown{ Messages.type_ = t }) =
     Text.IO.putStrLn $ "  [unknown] type: " <> t

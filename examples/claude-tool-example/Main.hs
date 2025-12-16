@@ -103,7 +103,7 @@ main = do
 
             -- Find the tool_use block(s) in the response
             let toolUseBlocks = [ (toolId, toolName, toolInput)
-                    | Messages.ContentBlock_Tool_Use{ Messages.id = toolId, Messages.name = toolName, Messages.input = toolInput }
+                    | Messages.ContentBlock_Tool_Use{ Messages.id = toolId, Messages.name = toolName, Messages.input = toolInput, Messages.caller = _ }
                         <- toList responseContent
                     ]
 
@@ -116,7 +116,7 @@ main = do
             let assistantMessage = Messages.Message
                     { Messages.role = Messages.Assistant
                     , Messages.content = Vector.fromList
-                        [ Messages.Content_Tool_Use{ Messages.id = tid, Messages.name = tname, Messages.input = tinput }
+                        [ Messages.Content_Tool_Use{ Messages.id = tid, Messages.name = tname, Messages.input = tinput, Messages.caller = Nothing }
                         | (tid, tname, tinput) <- toolUseBlocks
                         ]
                     , Messages.cache_control = Nothing
@@ -184,7 +184,9 @@ printContent (Messages.ContentBlock_Tool_Use{ Messages.name = n }) =
     Text.IO.putStrLn $ "[Tool use: " <> n <> "]"
 printContent (Messages.ContentBlock_Server_Tool_Use{ Messages.name = n }) =
     Text.IO.putStrLn $ "[Server tool use: " <> n <> "]"
-printContent (Messages.ContentBlock_Tool_Search_Tool_Result{ Messages.tool_use_id = tid }) =
+printContent (Messages.ContentBlock_Tool_Search_Tool_Result{ Messages.tool_use_id = tid, Messages.tool_search_content = _ }) =
     Text.IO.putStrLn $ "[Tool search result for: " <> tid <> "]"
+printContent (Messages.ContentBlock_Code_Execution_Tool_Result{ Messages.tool_use_id = tid, Messages.code_execution_content = _ }) =
+    Text.IO.putStrLn $ "[Code execution result for: " <> tid <> "]"
 printContent (Messages.ContentBlock_Unknown{ Messages.type_ = t }) =
     Text.IO.putStrLn $ "[Unknown block type: " <> t <> "]"

@@ -39,6 +39,10 @@ module Claude.V1.Tool
     , deferredTool
     , toolSearchRegex
     , toolSearchBm25
+      -- * Code execution tool (PTC)
+    , codeExecutionTool
+    , allowedCallersCodeExecution
+    , allowCallers
       -- * ToolChoice constructors
     , toolChoiceAuto
     , toolChoiceAny
@@ -212,40 +216,50 @@ instance ToJSON ToolSearchTool where
 --
 -- * Function tools: regular tools with name, description, and input schema
 -- * Tool search tools: server-side tool search configuration
+-- * Code execution tool: for programmatic tool calling (PTC)
 --
 -- Use 'inlineTool' or 'deferredTool' to wrap a 'Tool', or 'toolSearchRegex'/'toolSearchBm25'
--- to add tool search capability.
+-- to add tool search capability. Use 'codeExecutionTool' for PTC.
 data ToolDefinition
     = ToolDef_Function
         { tool :: Tool
         , defer_loading :: Maybe Bool
+        , allowed_callers :: Maybe (Vector Text)
         }
     | ToolDef_SearchTool ToolSearchTool
+    | ToolDef_CodeExecutionTool
+        { name :: Text
+        , type_ :: Text
+        }
     deriving stock (Eq, Show)
 
 instance FromJSON ToolDefinition where
     parseJSON = Aeson.withObject "ToolDefinition" $ \o -> do
-        -- Check if this is a tool search tool by looking for "type" field
+        -- Check if this is a tool search tool or code execution tool by looking for "type" field
         mType <- o Aeson..:? "type"
         case mType of
             Just t | isToolSearchType t -> do
                 searchTool <- Aeson.parseJSON (Aeson.Object o)
                 pure (ToolDef_SearchTool searchTool)
+            Just t | isCodeExecutionType t -> do
+                name <- o Aeson..: "name"
+                pure ToolDef_CodeExecutionTool{ name, type_ = t }
             _ -> do
                 -- Parse as function tool
                 tool <- Aeson.parseJSON (Aeson.Object o)
                 defer_loading <- o Aeson..:? "defer_loading"
-                pure ToolDef_Function{ tool, defer_loading }
+                allowed_callers <- o Aeson..:? "allowed_callers"
+                pure ToolDef_Function{ tool, defer_loading, allowed_callers }
       where
         isToolSearchType :: Text -> Bool
         isToolSearchType t = t == "tool_search_tool_regex_20251119"
                           || t == "tool_search_tool_bm25_20251119"
+        isCodeExecutionType :: Text -> Bool
+        isCodeExecutionType t = t == "code_execution_20250825"
 
 instance ToJSON ToolDefinition where
-    toJSON (ToolDef_Function Tool{ name, description, input_schema } defer_loading) =
-        case defer_loading of
-            Nothing -> baseObj
-            Just dl -> Aeson.Object (baseMap <> KeyMap.singleton "defer_loading" (Aeson.toJSON dl))
+    toJSON (ToolDef_Function Tool{ name, description, input_schema } defer_loading allowed_callers) =
+        Aeson.Object (baseMap <> optionalFields)
       where
         baseObj = Aeson.object $
             [ "name" Aeson..= name
@@ -254,15 +268,52 @@ instance ToJSON ToolDefinition where
         baseMap = case baseObj of
             Aeson.Object m -> m
             _ -> KeyMap.empty
+        optionalFields = KeyMap.fromList $
+            maybe [] (\dl -> [("defer_loading", Aeson.toJSON dl)]) defer_loading <>
+            maybe [] (\ac -> [("allowed_callers", Aeson.toJSON ac)]) allowed_callers
     toJSON (ToolDef_SearchTool searchTool) = Aeson.toJSON searchTool
+    toJSON (ToolDef_CodeExecutionTool name type_) = Aeson.object
+        [ "name" Aeson..= name
+        , "type" Aeson..= type_
+        ]
 
 -- | Wrap a tool for inline (non-deferred) loading
 inlineTool :: Tool -> ToolDefinition
-inlineTool t = ToolDef_Function{ tool = t, defer_loading = Nothing }
+inlineTool t = ToolDef_Function{ tool = t, defer_loading = Nothing, allowed_callers = Nothing }
 
 -- | Wrap a tool for deferred loading (used with tool search)
 deferredTool :: Tool -> ToolDefinition
-deferredTool t = ToolDef_Function{ tool = t, defer_loading = Just True }
+deferredTool t = ToolDef_Function{ tool = t, defer_loading = Just True, allowed_callers = Nothing }
+
+-- | Code execution tool for programmatic tool calling (PTC)
+--
+-- Requires @anthropic-beta: advanced-tool-use-2025-11-20@ header.
+-- When included in the tools array, Claude can write and execute code
+-- to call other tools programmatically.
+codeExecutionTool :: ToolDefinition
+codeExecutionTool = ToolDef_CodeExecutionTool
+    { name = "code_execution"
+    , type_ = "code_execution_20250825"
+    }
+
+-- | Allowed callers for code execution (PTC)
+--
+-- Use with 'allowCallers' to mark a function tool as callable by code execution.
+allowedCallersCodeExecution :: Vector Text
+allowedCallersCodeExecution = ["code_execution_20250825"]
+
+-- | Set allowed_callers on a function tool definition
+--
+-- Only affects 'ToolDef_Function'; other tool types are returned unchanged.
+--
+-- Example:
+--
+-- @
+-- allowCallers allowedCallersCodeExecution (inlineTool myTool)
+-- @
+allowCallers :: Vector Text -> ToolDefinition -> ToolDefinition
+allowCallers callers (ToolDef_Function t dl _) = ToolDef_Function t dl (Just callers)
+allowCallers _ td = td
 
 -- | Tool search using regex matching
 --

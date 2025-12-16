@@ -16,9 +16,12 @@ import qualified Claude.V1.Messages as Messages
 import qualified Claude.V1.Tool as Tool
 import qualified Control.Concurrent as Concurrent
 import qualified Data.Aeson as Aeson
+import qualified Data.Aeson.Types as Aeson.Types
 import           Data.Foldable (toList)
 import qualified Data.IORef as IORef
+import           Data.Maybe (mapMaybe)
 import qualified Data.Text as Text
+import qualified Data.Vector as Vector
 import qualified Network.HTTP.Client as HTTP.Client
 import qualified Network.HTTP.Client.TLS as TLS
 import qualified Servant.Client as Client
@@ -321,6 +324,132 @@ main = do
                 let hasToolUse' = any isToolUseBlock' (toList content)
                 HUnit.assertBool "Should have tool_use or server_tool_use content block" hasToolUse'
 
+    -- Programmatic tool calling test (uses same beta header)
+    let programmaticToolCallingTest =
+            HUnit.testCase "Create message - programmatic tool calling" do
+                -- Define a simple tool for PTC
+                let queryTool = Tool.Tool
+                        { Tool.name = "get_data"
+                        , Tool.description = Just "Get data for a key"
+                        , Tool.input_schema = Tool.InputSchema
+                            { Tool.type_ = "object"
+                            , Tool.properties = Just $ Aeson.object
+                                [ "key" Aeson..= Aeson.object
+                                    [ "type" Aeson..= ("string" :: Text.Text)
+                                    ]
+                                ]
+                            , Tool.required = Just ["key"]
+                            }
+                        }
+
+                -- Tools: code execution + query tool with allowed_callers
+                let tools =
+                        [ Tool.codeExecutionTool
+                        , Tool.allowCallers Tool.allowedCallersCodeExecution (Tool.inlineTool queryTool)
+                        ]
+
+                -- Initial request prompting code execution
+                let initialMessage = Messages.Message
+                        { Messages.role = Messages.User
+                        , Messages.content =
+                            [ Messages.textContent
+                                "Use code execution to call the get_data tool twice: once with key='alpha' and once with key='beta'. Then calculate the sum of the returned values."
+                            ]
+                        , Messages.cache_control = Nothing
+                        }
+
+                -- First request
+                Messages.MessageResponse{ stop_reason, content, container } <-
+                    createMessageBeta
+                        Messages._CreateMessage
+                            { Messages.model = model
+                            , Messages.messages = [initialMessage]
+                            , Messages.max_tokens = 4096
+                            , Messages.tools = Just tools
+                            }
+
+                -- Should stop for tool use
+                HUnit.assertEqual "Should stop for tool use"
+                    (Just Messages.Tool_Use)
+                    stop_reason
+
+                -- Should have a server_tool_use for code_execution
+                let hasCodeExecution = any isCodeExecutionServerToolUse (toList content)
+                HUnit.assertBool "Should have server_tool_use for code_execution" hasCodeExecution
+
+                -- Should have container info
+                HUnit.assertBool "Should have container info" (container /= Nothing)
+
+                -- Should have tool_use with programmatic caller
+                let programmaticToolUses =
+                        [ ()
+                        | Messages.ContentBlock_Tool_Use{ Messages.caller = Just (Messages.ToolCaller_CodeExecution{}) }
+                            <- toList content
+                        ]
+                HUnit.assertBool "Should have at least one programmatic tool call"
+                    (not (null programmaticToolUses))
+
+                -- Multi-turn loop: continue until end_turn or code_execution_tool_result
+                let containerId = fmap (\Messages.ContainerInfo{ Messages.id = cid } -> cid) container
+
+                -- Build initial assistant message from first response
+                let assistantContent1 = mapMaybe Messages.contentBlockToContent (toList content)
+                let assistantMessage1 = Messages.Message
+                        { Messages.role = Messages.Assistant
+                        , Messages.content = Vector.fromList assistantContent1
+                        , Messages.cache_control = Nothing
+                        }
+                let toolResults1 = processTestToolCalls content
+                let userMessage1 = Messages.Message
+                        { Messages.role = Messages.User
+                        , Messages.content = Vector.fromList toolResults1
+                        , Messages.cache_control = Nothing
+                        }
+
+                -- Loop function
+                let loop :: [Messages.Message] -> Maybe Text.Text -> Int -> IO ()
+                    loop _ _ turn | turn > 5 = HUnit.assertFailure "Max turns reached"
+                    loop msgs containerId' turn = do
+                        Messages.MessageResponse{ stop_reason = sr, content = c, container = cont } <-
+                            createMessageBeta
+                                Messages._CreateMessage
+                                    { Messages.model = model
+                                    , Messages.messages = Vector.fromList msgs
+                                    , Messages.max_tokens = 4096
+                                    , Messages.tools = Just tools
+                                    , Messages.container = containerId'
+                                    }
+
+                        let newContainerId = case cont of
+                                Just Messages.ContainerInfo{ Messages.id = cid } -> Just cid
+                                Nothing -> containerId'
+
+                        let hasCodeExecutionResult = any isCodeExecutionResult (toList c)
+                        let isEndTurn = sr == Just Messages.End_Turn
+
+                        if hasCodeExecutionResult || isEndTurn
+                            then pure ()  -- Success!
+                            else if sr == Just Messages.Tool_Use
+                                then do
+                                    -- Build next assistant and user messages
+                                    let assistantContentN = mapMaybe Messages.contentBlockToContent (toList c)
+                                    let assistantMessageN = Messages.Message
+                                            { Messages.role = Messages.Assistant
+                                            , Messages.content = Vector.fromList assistantContentN
+                                            , Messages.cache_control = Nothing
+                                            }
+                                    let toolResultsN = processTestToolCalls c
+                                    let userMessageN = Messages.Message
+                                            { Messages.role = Messages.User
+                                            , Messages.content = Vector.fromList toolResultsN
+                                            , Messages.cache_control = Nothing
+                                            }
+                                    loop (msgs <> [assistantMessageN, userMessageN]) newContainerId (turn + 1)
+                                else HUnit.assertFailure $ "Unexpected stop_reason: " <> show sr
+
+                -- Start the loop
+                loop [initialMessage, assistantMessage1, userMessage1] containerId 1
+
     let tests =
             [ messagesMinimalTest
             , messagesWithSystemTest
@@ -329,6 +458,35 @@ main = do
             , toolUseTest
             , tokenCountingTest
             , toolSearchTest
+            , programmaticToolCallingTest
             ]
 
     Tasty.defaultMain (Tasty.testGroup "Claude API Tests" tests)
+
+-- | Check if a content block is a server_tool_use for code_execution
+isCodeExecutionServerToolUse :: Messages.ContentBlock -> Bool
+isCodeExecutionServerToolUse (Messages.ContentBlock_Server_Tool_Use{ Messages.name = "code_execution" }) = True
+isCodeExecutionServerToolUse _ = False
+
+-- | Check if a content block is a code_execution_tool_result
+isCodeExecutionResult :: Messages.ContentBlock -> Bool
+isCodeExecutionResult (Messages.ContentBlock_Code_Execution_Tool_Result{}) = True
+isCodeExecutionResult _ = False
+
+-- | Process tool calls for testing - returns fake results
+processTestToolCalls :: Vector.Vector Messages.ContentBlock -> [Messages.Content]
+processTestToolCalls content =
+    [ Messages.Content_Tool_Result
+        { Messages.tool_use_id = toolId
+        , Messages.content = Just result
+        , Messages.is_error = Nothing
+        }
+    | Messages.ContentBlock_Tool_Use{ Messages.id = toolId, Messages.name = toolName, Messages.input = toolInput, Messages.caller = _ }
+        <- toList content
+    , let result = case toolName of
+            "get_data" -> case Aeson.Types.parseMaybe (Aeson.withObject "input" (\o -> o Aeson..: "key")) toolInput of
+                Just ("alpha" :: Text.Text) -> "{\"value\": 100}"
+                Just "beta" -> "{\"value\": 200}"
+                _ -> "{\"value\": 0}"
+            _ -> "{\"error\": \"unknown tool\"}"
+    ]
