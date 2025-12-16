@@ -26,6 +26,8 @@
             nativeBuildInputs = [
               pkgs.haskell-language-server
               pkgs.stylish-haskell
+              pkgs.zlib
+              pkgs.pkg-config
 
               (pkgs.vscode-with-extensions.override {
                 vscodeExtensions = [

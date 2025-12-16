@@ -3,4 +3,7 @@ dist-newstyle
 .envrc
 .DS_Store
 openapi.documented.yml
+openapispec.yaml
 .notes/
+.claude/commands/rp-investigate.md
+.claude/commands/rp-build.md
