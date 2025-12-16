@@ -50,13 +50,23 @@ module Claude.V1
       Methods(..)
     , getClientEnv
     , makeMethods
+    , makeMethodsWith
+    , ClientOptions(..)
+    , defaultClientOptions
       -- * Servant
     , API
     ) where
 
 import Claude.Prelude
-import Claude.V1.Messages (CountTokensRequest, CreateMessage, MessageResponse, MessageStreamEvent, TokenCount)
-import Claude.V1.Messages.Batches (BatchObject, CreateBatch, ListBatchesResponse)
+import Claude.V1.Messages
+    ( CountTokensRequest
+    , CreateMessage
+    , MessageResponse
+    , MessageStreamEvent
+    , TokenCount
+    )
+import Claude.V1.Messages.Batches
+    (BatchObject, CreateBatch, ListBatchesResponse)
 import Control.Monad (foldM)
 import Data.ByteString.Char8 ()
 import Data.Proxy (Proxy(..))
@@ -95,7 +105,27 @@ getClientEnv baseUrlText = do
 
     pure (Client.mkClientEnv manager baseUrl)
 
+-- | Client configuration options
+data ClientOptions = ClientOptions
+    { apiKey :: Text
+    -- ^ API key for authentication
+    , anthropicVersion :: Maybe Text
+    -- ^ Anthropic-Version header (e.g., "2023-06-01")
+    , anthropicBeta :: Maybe Text
+    -- ^ Anthropic-Beta header for beta features (e.g., "advanced-tool-use-2025-11-20")
+    } deriving stock (Show)
+
+-- | Default client options (requires setting apiKey)
+defaultClientOptions :: ClientOptions
+defaultClientOptions = ClientOptions
+    { apiKey = ""
+    , anthropicVersion = Just "2023-06-01"
+    , anthropicBeta = Nothing
+    }
+
 -- | Get a record of API methods after providing an API key
+--
+-- This is a convenience wrapper around 'makeMethodsWith' for common usage.
 makeMethods
     :: ClientEnv
     -- ^
@@ -104,10 +134,32 @@ makeMethods
     -> Maybe Text
     -- ^ Anthropic-Version header (e.g., "2023-06-01")
     -> Methods
-makeMethods clientEnv apiKey version = Methods{..}
+makeMethods clientEnv key version =
+    makeMethodsWith clientEnv ClientOptions
+        { apiKey = key
+        , anthropicVersion = version
+        , anthropicBeta = Nothing
+        }
+
+-- | Get a record of API methods with full configuration options
+--
+-- Use this when you need to pass beta headers (e.g., for tool search):
+--
+-- @
+-- let options = defaultClientOptions
+--         { apiKey = key
+--         , anthropicBeta = Just "advanced-tool-use-2025-11-20"
+--         }
+-- let Methods{ createMessage } = makeMethodsWith clientEnv options
+-- @
+makeMethodsWith
+    :: ClientEnv
+    -> ClientOptions
+    -> Methods
+makeMethodsWith clientEnv ClientOptions{ apiKey, anthropicVersion, anthropicBeta } = Methods{..}
   where
     ((createMessage_ :<|> countTokens_) :<|> (createBatch_ :<|> retrieveBatch_ :<|> listBatches_ :<|> cancelBatch_)) =
-        Client.hoistClient @API Proxy run (Client.client @API Proxy) apiKey version
+        Client.hoistClient @API Proxy run (Client.client @API Proxy) apiKey anthropicVersion anthropicBeta
 
     run :: Client.ClientM a -> IO a
     run clientM = do
@@ -159,9 +211,12 @@ makeMethods clientEnv apiKey version = Methods{..}
                 , ("Accept", "text/event-stream")
                 , ("Content-Type", "application/json")
                 ]
-        let headers = case version of
+        let headers1 = case anthropicVersion of
                 Nothing -> headers0
                 Just v -> ("anthropic-version", S8.pack (Text.unpack v)) : headers0
+        let headers = case anthropicBeta of
+                Nothing -> headers1
+                Just b -> ("anthropic-beta", S8.pack (Text.unpack b)) : headers1
 
         let request = HTTP.Client.defaultRequest
                 { HTTP.Client.secure = secure
@@ -280,5 +335,6 @@ data Methods = Methods
 type API
     =   Header' [ Required, Strict ] "x-api-key" Text
     :>  Header' [ Optional, Strict ] "anthropic-version" Text
+    :>  Header' [ Optional, Strict ] "anthropic-beta" Text
     :>  "v1"
     :>  (Messages.API :<|> Batches.API)

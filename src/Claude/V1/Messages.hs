@@ -20,11 +20,22 @@ module Claude.V1.Messages
       -- * Response types
     , StopReason(..)
     , Usage(..)
+    , ServerToolUseUsage(..)
+      -- * Tool search response types
+    , ToolReference(..)
+    , ToolSearchToolResultContent(..)
       -- * Tool types (re-exported from Claude.V1.Tool)
     , Tool(..)
     , ToolChoice(..)
     , InputSchema(..)
+    , ToolDefinition(..)
+    , ToolSearchTool(..)
+    , ToolSearchToolType(..)
     , functionTool
+    , inlineTool
+    , deferredTool
+    , toolSearchRegex
+    , toolSearchBm25
     , toolChoiceAuto
     , toolChoiceAny
     , toolChoiceTool
@@ -50,16 +61,24 @@ module Claude.V1.Messages
     , CountTokensAPI
     ) where
 
-import Claude.Prelude
-import Claude.V1.Tool
+import           Claude.Prelude
+import           Claude.V1.Tool
     ( InputSchema(..)
     , Tool(..)
     , ToolChoice(..)
+    , ToolDefinition(..)
+    , ToolSearchTool(..)
+    , ToolSearchToolType(..)
+    , deferredTool
     , functionTool
+    , inlineTool
     , toolChoiceAny
     , toolChoiceAuto
     , toolChoiceTool
+    , toolSearchBm25
+    , toolSearchRegex
     )
+import qualified Data.Aeson as Aeson
 
 -- | Role of a message participant
 data Role = User | Assistant
@@ -161,31 +180,128 @@ instance FromJSON Content where
 instance ToJSON Content where
     toJSON = genericToJSON contentOptions
 
+-- | A reference to a tool found by tool search
+data ToolReference = ToolReference
+    { tool_name :: Text
+    } deriving stock (Eq, Generic, Show)
+
+instance FromJSON ToolReference where
+    parseJSON = genericParseJSON aesonOptions
+
+instance ToJSON ToolReference where
+    toJSON = genericToJSON aesonOptions
+
+-- | Content of a tool search tool result
+--
+-- This can be either successful search results with tool references,
+-- an error, or an unknown type for forward compatibility.
+data ToolSearchToolResultContent
+    = ToolSearchResult
+        { tool_references :: Vector ToolReference
+        }
+    | ToolSearchError
+        { error_code :: Text
+        }
+    | ToolSearchResultContent_Unknown Value
+    deriving stock (Eq, Show)
+
+instance FromJSON ToolSearchToolResultContent where
+    parseJSON = Aeson.withObject "ToolSearchToolResultContent" $ \o -> do
+        t <- o Aeson..: "type"
+        case (t :: Text) of
+            "tool_search_result" -> do
+                tool_references <- o Aeson..: "tool_references"
+                pure ToolSearchResult{ tool_references }
+            "error" -> do
+                error_code <- o Aeson..: "error_code"
+                pure ToolSearchError{ error_code }
+            _ -> pure (ToolSearchResultContent_Unknown (Aeson.Object o))
+
+instance ToJSON ToolSearchToolResultContent where
+    toJSON (ToolSearchResult refs) = Aeson.object
+        [ "type" Aeson..= ("tool_search_result" :: Text)
+        , "tool_references" Aeson..= refs
+        ]
+    toJSON (ToolSearchError code) = Aeson.object
+        [ "type" Aeson..= ("error" :: Text)
+        , "error_code" Aeson..= code
+        ]
+    toJSON (ToolSearchResultContent_Unknown v) = v
+
 -- | Content block in a response
+--
+-- Extended to support tool search response blocks:
+--
+-- * @server_tool_use@: Server-initiated tool use (e.g., tool search)
+-- * @tool_search_tool_result@: Results from server-side tool search
 data ContentBlock
     = ContentBlock_Text { text :: Text }
     | ContentBlock_Tool_Use { id :: Text, name :: Text, input :: Value }
+    | ContentBlock_Server_Tool_Use { id :: Text, name :: Text, input :: Value }
+    | ContentBlock_Tool_Search_Tool_Result
+        { tool_use_id :: Text
+        , content :: ToolSearchToolResultContent
+        }
+    | ContentBlock_Unknown { type_ :: Text, raw :: Value }
     deriving stock (Generic, Show)
 
-contentBlockOptions :: Options
-contentBlockOptions = aesonOptions
-    { sumEncoding = TaggedObject{ tagFieldName = "type", contentsFieldName = "" }
-    , tagSingleConstructors = True
-    , constructorTagModifier = stripPrefix "ContentBlock_"
-    }
-
 instance FromJSON ContentBlock where
-    parseJSON = genericParseJSON contentBlockOptions
+    parseJSON = Aeson.withObject "ContentBlock" $ \o -> do
+        t <- o Aeson..: "type"
+        case (t :: Text) of
+            "text" -> ContentBlock_Text <$> o Aeson..: "text"
+            "tool_use" -> ContentBlock_Tool_Use
+                <$> o Aeson..: "id"
+                <*> o Aeson..: "name"
+                <*> o Aeson..: "input"
+            "server_tool_use" -> ContentBlock_Server_Tool_Use
+                <$> o Aeson..: "id"
+                <*> o Aeson..: "name"
+                <*> o Aeson..: "input"
+            "tool_search_tool_result" -> ContentBlock_Tool_Search_Tool_Result
+                <$> o Aeson..: "tool_use_id"
+                <*> o Aeson..: "content"
+            _ -> pure (ContentBlock_Unknown t (Aeson.Object o))
 
 instance ToJSON ContentBlock where
-    toJSON = genericToJSON contentBlockOptions
+    toJSON (ContentBlock_Text t) = Aeson.object
+        [ "type" Aeson..= ("text" :: Text)
+        , "text" Aeson..= t
+        ]
+    toJSON (ContentBlock_Tool_Use toolId toolName toolInput) = Aeson.object
+        [ "type" Aeson..= ("tool_use" :: Text)
+        , "id" Aeson..= toolId
+        , "name" Aeson..= toolName
+        , "input" Aeson..= toolInput
+        ]
+    toJSON (ContentBlock_Server_Tool_Use toolId toolName toolInput) = Aeson.object
+        [ "type" Aeson..= ("server_tool_use" :: Text)
+        , "id" Aeson..= toolId
+        , "name" Aeson..= toolName
+        , "input" Aeson..= toolInput
+        ]
+    toJSON (ContentBlock_Tool_Search_Tool_Result toolUseId resultContent) = Aeson.object
+        [ "type" Aeson..= ("tool_search_tool_result" :: Text)
+        , "tool_use_id" Aeson..= toolUseId
+        , "content" Aeson..= resultContent
+        ]
+    toJSON (ContentBlock_Unknown _typeName rawVal) = rawVal
 
 -- | A message in the conversation
+--
+-- The optional @cache_control@ field allows setting cache breakpoints at
+-- the message level (in addition to content-level caching).
 data Message = Message
     { role :: Role
     , content :: Vector Content
+    , cache_control :: Maybe CacheControl
     } deriving stock (Generic, Show)
-      deriving anyclass (FromJSON, ToJSON)
+
+instance FromJSON Message where
+    parseJSON = genericParseJSON aesonOptions
+
+instance ToJSON Message where
+    toJSON = genericToJSON aesonOptions
 
 -- | Reason why the model stopped generating
 data StopReason
@@ -205,12 +321,25 @@ instance FromJSON StopReason where
 instance ToJSON StopReason where
     toJSON = genericToJSON stopReasonOptions
 
+-- | Server tool use usage information (e.g., tool search requests, web search requests)
+data ServerToolUseUsage = ServerToolUseUsage
+    { web_search_requests :: Maybe Natural
+    , tool_search_requests :: Maybe Natural
+    } deriving stock (Eq, Generic, Show)
+
+instance FromJSON ServerToolUseUsage where
+    parseJSON = genericParseJSON aesonOptions
+
+instance ToJSON ServerToolUseUsage where
+    toJSON = genericToJSON aesonOptions
+
 -- | Token usage information
 data Usage = Usage
     { input_tokens :: Natural
     , output_tokens :: Natural
     , cache_creation_input_tokens :: Maybe Natural
     , cache_read_input_tokens :: Maybe Natural
+    , server_tool_use :: Maybe ServerToolUseUsage
     } deriving stock (Generic, Show)
 
 instance FromJSON Usage where
@@ -249,7 +378,7 @@ data CreateMessage = CreateMessage
     , stop_sequences :: Maybe (Vector Text)
     , stream :: Maybe Bool
     , metadata :: Maybe (Map Text Text)
-    , tools :: Maybe (Vector Tool)
+    , tools :: Maybe (Vector ToolDefinition)
     , tool_choice :: Maybe ToolChoice
     } deriving stock (Generic, Show)
 
@@ -398,7 +527,7 @@ data CountTokensRequest = CountTokensRequest
     { model :: Text
     , messages :: Vector Message
     , system :: Maybe Text
-    , tools :: Maybe (Vector Tool)
+    , tools :: Maybe (Vector ToolDefinition)
     , tool_choice :: Maybe ToolChoice
     } deriving stock (Generic, Show)
 

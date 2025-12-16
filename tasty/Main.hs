@@ -58,6 +58,7 @@ main = do
                                     , Messages.content =
                                         [ Messages.textContent "Say hello in one word."
                                         ]
+                                    , Messages.cache_control = Nothing
                                     }
                                 ]
                             , Messages.max_tokens = 100
@@ -78,6 +79,7 @@ main = do
                                     , Messages.content =
                                         [ Messages.textContent "What are you?"
                                         ]
+                                    , Messages.cache_control = Nothing
                                     }
                                 ]
                             , Messages.max_tokens = 100
@@ -112,6 +114,7 @@ main = do
                                 , Messages.content =
                                     [ Messages.textContent "Write a haiku about code."
                                     ]
+                                , Messages.cache_control = Nothing
                                 }
                             ]
                         , Messages.max_tokens = 200
@@ -135,18 +138,21 @@ main = do
                                     , Messages.content =
                                         [ Messages.textContent "My name is Alice."
                                         ]
+                                    , Messages.cache_control = Nothing
                                     }
                                 , Messages.Message
                                     { Messages.role = Messages.Assistant
                                     , Messages.content =
                                         [ Messages.textContent "Hello Alice! Nice to meet you."
                                         ]
+                                    , Messages.cache_control = Nothing
                                     }
                                 , Messages.Message
                                     { Messages.role = Messages.User
                                     , Messages.content =
                                         [ Messages.textContent "What is my name?"
                                         ]
+                                    , Messages.cache_control = Nothing
                                     }
                                 ]
                             , Messages.max_tokens = 100
@@ -182,10 +188,11 @@ main = do
                                     , Messages.content =
                                         [ Messages.textContent "What is 15 + 27? Use the calculator tool."
                                         ]
+                                    , Messages.cache_control = Nothing
                                     }
                                 ]
                             , Messages.max_tokens = 200
-                            , Messages.tools = Just [calculatorTool]
+                            , Messages.tools = Just [Tool.inlineTool calculatorTool]
                             , Messages.tool_choice = Just Tool.ToolChoice_Any
                             }
 
@@ -204,7 +211,7 @@ main = do
             HUnit.testCase "Count tokens" do
                 Messages.TokenCount{ input_tokens } <-
                     countTokens
-                        Messages._CountTokensRequest
+                        Messages.CountTokensRequest
                             { Messages.model = model
                             , Messages.messages =
                                 [ Messages.Message
@@ -212,12 +219,107 @@ main = do
                                     , Messages.content =
                                         [ Messages.textContent "Hello, world!"
                                         ]
+                                    , Messages.cache_control = Nothing
                                     }
                                 ]
+                            , Messages.system = Nothing
+                            , Messages.tools = Nothing
+                            , Messages.tool_choice = Nothing
                             }
 
                 HUnit.assertBool "Should have positive token count"
                     (input_tokens > 0)
+
+    -- Tool search test requires beta header
+    let betaOptions = V1.defaultClientOptions
+            { V1.apiKey = Text.pack key
+            , V1.anthropicBeta = Just "advanced-tool-use-2025-11-20"
+            }
+    let V1.Methods{ V1.createMessage = createMessageBeta } =
+            V1.makeMethodsWith clientEnv betaOptions
+
+    let toolSearchTest =
+            HUnit.testCase "Create message - tool search" do
+                -- Define several tools to search through
+                let weatherTool = Tool.Tool
+                        { Tool.name = "get_weather"
+                        , Tool.description = Just "Get the current weather for a location"
+                        , Tool.input_schema = Tool.InputSchema
+                            { Tool.type_ = "object"
+                            , Tool.properties = Just $ Aeson.object
+                                [ "location" Aeson..= Aeson.object
+                                    [ "type" Aeson..= ("string" :: Text.Text)
+                                    ]
+                                ]
+                            , Tool.required = Just ["location"]
+                            }
+                        }
+
+                let stockTool = Tool.Tool
+                        { Tool.name = "get_stock_price"
+                        , Tool.description = Just "Get the stock price for a ticker"
+                        , Tool.input_schema = Tool.InputSchema
+                            { Tool.type_ = "object"
+                            , Tool.properties = Just $ Aeson.object
+                                [ "ticker" Aeson..= Aeson.object
+                                    [ "type" Aeson..= ("string" :: Text.Text)
+                                    ]
+                                ]
+                            , Tool.required = Just ["ticker"]
+                            }
+                        }
+
+                let calculatorTool' = Tool.Tool
+                        { Tool.name = "calculator"
+                        , Tool.description = Just "Perform arithmetic calculations"
+                        , Tool.input_schema = Tool.InputSchema
+                            { Tool.type_ = "object"
+                            , Tool.properties = Just $ Aeson.object
+                                [ "expression" Aeson..= Aeson.object
+                                    [ "type" Aeson..= ("string" :: Text.Text)
+                                    ]
+                                ]
+                            , Tool.required = Just ["expression"]
+                            }
+                        }
+
+                -- Use tool search with deferred tools
+                let tools =
+                        [ Tool.toolSearchRegex
+                        , Tool.deferredTool weatherTool
+                        , Tool.deferredTool stockTool
+                        , Tool.deferredTool calculatorTool'
+                        ]
+
+                Messages.MessageResponse{ stop_reason, content } <-
+                    createMessageBeta
+                        Messages._CreateMessage
+                            { Messages.model = model
+                            , Messages.messages =
+                                [ Messages.Message
+                                    { Messages.role = Messages.User
+                                    , Messages.content =
+                                        [ Messages.textContent "What's the weather in Paris?"
+                                        ]
+                                    , Messages.cache_control = Nothing
+                                    }
+                                ]
+                            , Messages.max_tokens = 200
+                            , Messages.tools = Just tools
+                            , Messages.tool_choice = Just Tool.ToolChoice_Any
+                            }
+
+                -- Should stop for tool use
+                HUnit.assertEqual "Should stop for tool use"
+                    (Just Messages.Tool_Use)
+                    stop_reason
+
+                -- Should have either a tool_use or server_tool_use content block
+                let isToolUseBlock' (Messages.ContentBlock_Tool_Use{}) = True
+                    isToolUseBlock' (Messages.ContentBlock_Server_Tool_Use{}) = True
+                    isToolUseBlock' _ = False
+                let hasToolUse' = any isToolUseBlock' (toList content)
+                HUnit.assertBool "Should have tool_use or server_tool_use content block" hasToolUse'
 
     let tests =
             [ messagesMinimalTest
@@ -226,6 +328,7 @@ main = do
             , messagesConversationTest
             , toolUseTest
             , tokenCountingTest
+            , toolSearchTest
             ]
 
     Tasty.defaultMain (Tasty.testGroup "Claude API Tests" tests)

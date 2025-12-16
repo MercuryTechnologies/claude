@@ -30,6 +30,7 @@ main = do
             [ Message
                 { role = User
                 , content = [ textContent text ]
+                , cache_control = Nothing
                 }
             ]
         , max_tokens = 1024

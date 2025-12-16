@@ -80,6 +80,7 @@ main = do
     let initialMessage = Messages.Message
             { Messages.role = Messages.User
             , Messages.content = [Messages.textContent "What's the weather like in San Francisco?"]
+            , Messages.cache_control = Nothing
             }
 
     Text.IO.putStrLn "Sending initial request with weather tool..."
@@ -88,7 +89,7 @@ main = do
         { Messages.model = "claude-sonnet-4-5-20250929"
         , Messages.messages = [initialMessage]
         , Messages.max_tokens = 1024
-        , Messages.tools = Just [weatherTool]
+        , Messages.tools = Just [Tool.inlineTool weatherTool]
         }
 
     let Messages.MessageResponse{ Messages.stop_reason = stopReason, Messages.content = responseContent } = firstResponse
@@ -118,18 +119,20 @@ main = do
                         [ Messages.Content_Tool_Use{ Messages.id = tid, Messages.name = tname, Messages.input = tinput }
                         | (tid, tname, tinput) <- toolUseBlocks
                         ]
+                    , Messages.cache_control = Nothing
                     }
 
             let userToolResults = Messages.Message
                     { Messages.role = Messages.User
                     , Messages.content = Vector.fromList toolResults
+                    , Messages.cache_control = Nothing
                     }
 
             finalResponse <- createMessage Messages._CreateMessage
                 { Messages.model = "claude-sonnet-4-5-20250929"
                 , Messages.messages = [initialMessage, assistantMessage, userToolResults]
                 , Messages.max_tokens = 1024
-                , Messages.tools = Just [weatherTool]
+                , Messages.tools = Just [Tool.inlineTool weatherTool]
                 }
 
             -- Print the final response
@@ -179,3 +182,9 @@ printContent :: Messages.ContentBlock -> IO ()
 printContent (Messages.ContentBlock_Text{ Messages.text = t }) = Text.IO.putStrLn t
 printContent (Messages.ContentBlock_Tool_Use{ Messages.name = n }) =
     Text.IO.putStrLn $ "[Tool use: " <> n <> "]"
+printContent (Messages.ContentBlock_Server_Tool_Use{ Messages.name = n }) =
+    Text.IO.putStrLn $ "[Server tool use: " <> n <> "]"
+printContent (Messages.ContentBlock_Tool_Search_Tool_Result{ Messages.tool_use_id = tid }) =
+    Text.IO.putStrLn $ "[Tool search result for: " <> tid <> "]"
+printContent (Messages.ContentBlock_Unknown{ Messages.type_ = t }) =
+    Text.IO.putStrLn $ "[Unknown block type: " <> t <> "]"

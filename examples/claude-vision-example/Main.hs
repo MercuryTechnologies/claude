@@ -52,6 +52,7 @@ main = do
                         }
                     , textContent "What do you see in this image? Please describe it in detail."
                     ]
+                , cache_control = Nothing
                 }
             ]
         , max_tokens = 1024

@@ -42,6 +42,7 @@ main = do
                     , Messages.content =
                         [ Messages.textContent "Write a short haiku about the sea."
                         ]
+                    , Messages.cache_control = Nothing
                     }
                 ]
             , Messages.max_tokens = 200

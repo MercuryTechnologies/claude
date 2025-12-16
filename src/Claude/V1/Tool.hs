@@ -27,9 +27,18 @@ module Claude.V1.Tool
       Tool(..)
     , ToolChoice(..)
     , InputSchema(..)
+      -- * Tool definition (heterogeneous tools array)
+    , ToolDefinition(..)
+    , ToolSearchTool(..)
+    , ToolSearchToolType(..)
       -- * Tool constructors
     , functionTool
     , simpleInputSchema
+      -- * ToolDefinition constructors
+    , inlineTool
+    , deferredTool
+    , toolSearchRegex
+    , toolSearchBm25
       -- * ToolChoice constructors
     , toolChoiceAuto
     , toolChoiceAny
@@ -55,7 +64,7 @@ data InputSchema = InputSchema
     { type_ :: Text
     , properties :: Maybe Value
     , required :: Maybe (Vector Text)
-    } deriving stock (Generic, Show)
+    } deriving stock (Eq, Generic, Show)
 
 instance FromJSON InputSchema where
     parseJSON = genericParseJSON aesonOptions
@@ -82,7 +91,7 @@ data Tool = Tool
     { name :: Text
     , description :: Maybe Text
     , input_schema :: InputSchema
-    } deriving stock (Generic, Show)
+    } deriving stock (Eq, Generic, Show)
 
 instance FromJSON Tool where
     parseJSON = genericParseJSON aesonOptions
@@ -159,6 +168,119 @@ toolChoiceAny = ToolChoice_Any
 -- | Convenience: specific tool choice
 toolChoiceTool :: Text -> ToolChoice
 toolChoiceTool = ToolChoice_Tool
+
+-- | Tool search tool type variants (for server-side tool search)
+data ToolSearchToolType
+    = ToolSearchTool_Regex_20251119
+    | ToolSearchTool_Bm25_20251119
+    deriving stock (Eq, Show)
+
+instance FromJSON ToolSearchToolType where
+    parseJSON = Aeson.withText "ToolSearchToolType" $ \t -> case t of
+        "tool_search_tool_regex_20251119" -> pure ToolSearchTool_Regex_20251119
+        "tool_search_tool_bm25_20251119" -> pure ToolSearchTool_Bm25_20251119
+        _ -> fail $ "Unknown tool search tool type: " <> show t
+
+instance ToJSON ToolSearchToolType where
+    toJSON ToolSearchTool_Regex_20251119 = Aeson.String "tool_search_tool_regex_20251119"
+    toJSON ToolSearchTool_Bm25_20251119 = Aeson.String "tool_search_tool_bm25_20251119"
+
+-- | Tool search tool configuration
+--
+-- Used to enable server-side tool search, which allows Claude to efficiently
+-- search through large numbers of tools using regex or BM25 matching.
+data ToolSearchTool = ToolSearchTool
+    { name :: Text
+    , type_ :: ToolSearchToolType
+    } deriving stock (Eq, Show)
+
+instance FromJSON ToolSearchTool where
+    parseJSON = Aeson.withObject "ToolSearchTool" $ \o -> do
+        name <- o Aeson..: "name"
+        type_ <- o Aeson..: "type"
+        pure ToolSearchTool{ name, type_ }
+
+instance ToJSON ToolSearchTool where
+    toJSON ToolSearchTool{ name, type_ } = Aeson.object
+        [ "name" Aeson..= name
+        , "type" Aeson..= type_
+        ]
+
+-- | A tool definition for the @tools@ array
+--
+-- The @tools@ array in Claude API requests is heterogeneous:
+--
+-- * Function tools: regular tools with name, description, and input schema
+-- * Tool search tools: server-side tool search configuration
+--
+-- Use 'inlineTool' or 'deferredTool' to wrap a 'Tool', or 'toolSearchRegex'/'toolSearchBm25'
+-- to add tool search capability.
+data ToolDefinition
+    = ToolDef_Function
+        { tool :: Tool
+        , defer_loading :: Maybe Bool
+        }
+    | ToolDef_SearchTool ToolSearchTool
+    deriving stock (Eq, Show)
+
+instance FromJSON ToolDefinition where
+    parseJSON = Aeson.withObject "ToolDefinition" $ \o -> do
+        -- Check if this is a tool search tool by looking for "type" field
+        mType <- o Aeson..:? "type"
+        case mType of
+            Just t | isToolSearchType t -> do
+                searchTool <- Aeson.parseJSON (Aeson.Object o)
+                pure (ToolDef_SearchTool searchTool)
+            _ -> do
+                -- Parse as function tool
+                tool <- Aeson.parseJSON (Aeson.Object o)
+                defer_loading <- o Aeson..:? "defer_loading"
+                pure ToolDef_Function{ tool, defer_loading }
+      where
+        isToolSearchType :: Text -> Bool
+        isToolSearchType t = t == "tool_search_tool_regex_20251119"
+                          || t == "tool_search_tool_bm25_20251119"
+
+instance ToJSON ToolDefinition where
+    toJSON (ToolDef_Function Tool{ name, description, input_schema } defer_loading) =
+        case defer_loading of
+            Nothing -> baseObj
+            Just dl -> Aeson.Object (baseMap <> KeyMap.singleton "defer_loading" (Aeson.toJSON dl))
+      where
+        baseObj = Aeson.object $
+            [ "name" Aeson..= name
+            , "input_schema" Aeson..= input_schema
+            ] <> maybe [] (\d -> ["description" Aeson..= d]) description
+        baseMap = case baseObj of
+            Aeson.Object m -> m
+            _ -> KeyMap.empty
+    toJSON (ToolDef_SearchTool searchTool) = Aeson.toJSON searchTool
+
+-- | Wrap a tool for inline (non-deferred) loading
+inlineTool :: Tool -> ToolDefinition
+inlineTool t = ToolDef_Function{ tool = t, defer_loading = Nothing }
+
+-- | Wrap a tool for deferred loading (used with tool search)
+deferredTool :: Tool -> ToolDefinition
+deferredTool t = ToolDef_Function{ tool = t, defer_loading = Just True }
+
+-- | Tool search using regex matching
+--
+-- Requires @anthropic-beta: advanced-tool-use-2025-11-20@ header.
+toolSearchRegex :: ToolDefinition
+toolSearchRegex = ToolDef_SearchTool ToolSearchTool
+    { name = "tool_search_tool_regex"
+    , type_ = ToolSearchTool_Regex_20251119
+    }
+
+-- | Tool search using BM25 matching
+--
+-- Requires @anthropic-beta: advanced-tool-use-2025-11-20@ header.
+toolSearchBm25 :: ToolDefinition
+toolSearchBm25 = ToolDef_SearchTool ToolSearchTool
+    { name = "tool_search_tool_bm25"
+    , type_ = ToolSearchTool_Bm25_20251119
+    }
 
 -- | Content block types (duplicated here for helper functions)
 -- These mirror the types in Messages but are needed for the helper functions.
