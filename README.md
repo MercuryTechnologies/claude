@@ -80,6 +80,8 @@ cabal test
 
 ## Running the Examples
 
+See [examples/README.md](examples/README.md) for descriptions of each example.
+
 ```bash
 cabal run claude-example
 cabal run claude-stream-example
