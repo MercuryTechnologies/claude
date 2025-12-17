@@ -93,5 +93,15 @@ cabal run claude-programmatic-tool-calling-example
 
 The `claude-tool-search-example` and `claude-programmatic-tool-calling-example` demonstrate beta features that require the `advanced-tool-use-2025-11-20` beta header:
 
-- **Tool Search**: Server-side tool search for efficiently handling large numbers of tools
-- **Programmatic Tool Calling (PTC)**: Claude writes and executes code to call multiple tools and aggregate results
+- **[Tool Search Tool](https://platform.claude.com/docs/en/agents-and-tools/tool-use/tool-search-tool)**: Server-side tool search for efficiently handling large numbers of tools
+- **[Programmatic Tool Calling (PTC)](https://platform.claude.com/docs/en/agents-and-tools/tool-use/programmatic-tool-calling)**: Claude writes and executes code to call multiple tools and aggregate results
+
+To enable these features, use `makeMethodsWith` with the beta header:
+
+```haskell
+let options = defaultClientOptions
+        { apiKey = key
+        , anthropicBeta = Just "advanced-tool-use-2025-11-20"
+        }
+let Methods{ createMessage } = makeMethodsWith clientEnv options
+```
