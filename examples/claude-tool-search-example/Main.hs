@@ -38,7 +38,9 @@ weatherTool = Tool.Tool
                 ]
             ]
         , Tool.required = Just ["location"]
+        , Tool.additionalProperties = Nothing
         }
+    , Tool.strict = Nothing
     }
 
 stockPriceTool :: Tool.Tool
@@ -54,7 +56,9 @@ stockPriceTool = Tool.Tool
                 ]
             ]
         , Tool.required = Just ["ticker"]
+        , Tool.additionalProperties = Nothing
         }
+    , Tool.strict = Nothing
     }
 
 currencyConvertTool :: Tool.Tool
@@ -78,7 +82,9 @@ currencyConvertTool = Tool.Tool
                 ]
             ]
         , Tool.required = Just ["amount", "from_currency", "to_currency"]
+        , Tool.additionalProperties = Nothing
         }
+    , Tool.strict = Nothing
     }
 
 calculatorTool :: Tool.Tool
@@ -94,7 +100,9 @@ calculatorTool = Tool.Tool
                 ]
             ]
         , Tool.required = Just ["expression"]
+        , Tool.additionalProperties = Nothing
         }
+    , Tool.strict = Nothing
     }
 
 searchWebTool :: Tool.Tool
@@ -110,7 +118,9 @@ searchWebTool = Tool.Tool
                 ]
             ]
         , Tool.required = Just ["query"]
+        , Tool.additionalProperties = Nothing
         }
+    , Tool.strict = Nothing
     }
 
 main :: IO ()

@@ -5,5 +5,9 @@ dist-newstyle
 openapi.documented.yml
 openapispec.yaml
 .notes/
+build/
+cache/
+packagedb/
+*-docs.tar.gz
 .claude/commands/rp-investigate.md
 .claude/commands/rp-build.md

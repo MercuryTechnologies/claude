@@ -7,6 +7,9 @@ module Claude.V1.Messages
     , _CreateMessage
     , MessageResponse(..)
     , MessageStreamEvent(..)
+      -- * Structured outputs
+    , OutputFormat(..)
+    , jsonSchemaFormat
       -- * Content types
     , Content(..)
     , ContentBlock(..)
@@ -38,6 +41,7 @@ module Claude.V1.Messages
     , ToolSearchTool(..)
     , ToolSearchToolType(..)
     , functionTool
+    , strictFunctionTool
     , inlineTool
     , deferredTool
     , toolSearchRegex
@@ -84,15 +88,16 @@ import           Claude.V1.Tool
     , deferredTool
     , functionTool
     , inlineTool
+    , strictFunctionTool
     , toolChoiceAny
     , toolChoiceAuto
     , toolChoiceTool
     , toolSearchBm25
     , toolSearchRegex
     )
-import           Data.Time (UTCTime)
 import qualified Data.Aeson as Aeson
 import qualified Data.Aeson.KeyMap as KeyMap
+import           Data.Time (UTCTime)
 
 -- | Role of a message participant
 data Role = User | Assistant
@@ -487,6 +492,8 @@ data StopReason
     | Max_Tokens
     | Stop_Sequence
     | Tool_Use
+    | Refusal
+    -- ^ Model refused the request for safety reasons (structured outputs only)
     deriving stock (Eq, Generic, Show)
 
 stopReasonOptions :: Options
@@ -549,6 +556,43 @@ instance FromJSON MessageResponse where
 instance ToJSON MessageResponse where
     toJSON = genericToJSON aesonOptions
 
+-- | Output format specification for structured outputs
+--
+-- Use with the @structured-outputs-2025-11-13@ beta header.
+--
+-- Example:
+--
+-- @
+-- let outputFormat = jsonSchemaFormat $ Aeson.object
+--         [ "type" .= ("object" :: Text)
+--         , "properties" .= Aeson.object
+--             [ "name" .= Aeson.object ["type" .= ("string" :: Text)]
+--             , "age" .= Aeson.object ["type" .= ("integer" :: Text)]
+--             ]
+--         , "required" .= (["name", "age"] :: [Text])
+--         , "additionalProperties" .= False
+--         ]
+-- @
+data OutputFormat = OutputFormat
+    { type_ :: Text    -- ^ Currently only "json_schema" is supported
+    , schema :: Value  -- ^ JSON Schema for the output
+    } deriving stock (Eq, Generic, Show)
+
+instance FromJSON OutputFormat where
+    parseJSON = genericParseJSON aesonOptions
+
+instance ToJSON OutputFormat where
+    toJSON = genericToJSON aesonOptions
+
+-- | Create a JSON schema output format
+--
+-- This is the primary way to use structured outputs.
+jsonSchemaFormat :: Value -> OutputFormat
+jsonSchemaFormat s = OutputFormat
+    { type_ = "json_schema"
+    , schema = s
+    }
+
 -- | Request body for @\/v1\/messages@
 --
 -- For programmatic tool calling (PTC), use the @container@ field to reuse
@@ -567,6 +611,8 @@ data CreateMessage = CreateMessage
     , tools :: Maybe (Vector ToolDefinition)
     , tool_choice :: Maybe ToolChoice
     , container :: Maybe Text
+    , output_format :: Maybe OutputFormat
+    -- ^ Structured output format (requires @structured-outputs-2025-11-13@ beta header)
     } deriving stock (Generic, Show)
 
 instance FromJSON CreateMessage where
@@ -591,6 +637,7 @@ _CreateMessage = CreateMessage
     , tools = Nothing
     , tool_choice = Nothing
     , container = Nothing
+    , output_format = Nothing
     }
 
 -- | Text delta in streaming

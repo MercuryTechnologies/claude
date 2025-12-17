@@ -46,7 +46,9 @@ queryDatabaseTool = Tool.Tool
                 ]
             ]
         , Tool.required = Just ["region"]
+        , Tool.additionalProperties = Nothing
         }
+    , Tool.strict = Nothing
     }
 
 -- | Fake database query - returns sales data for a region

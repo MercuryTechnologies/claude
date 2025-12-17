@@ -11,7 +11,7 @@ cabal build
 # Test (requires ANTHROPIC_KEY env var - tests call live API)
 cabal test
 
-# Run examples
+# Run examples (see examples/README.md for full list)
 cabal run claude-example         # Basic message
 cabal run claude-stream-example  # Streaming responses
 cabal run claude-tool-example    # Tool/function calling
@@ -75,6 +75,20 @@ createMessage _CreateMessage
 
 ```haskell
 functionTool "name" "description" schema  -- Create tool definition
+strictFunctionTool "name" "desc" schema   -- Tool with strict validation (structured outputs)
 toolChoiceAuto / toolChoiceAny            -- Tool selection modes
 toolChoiceTool "name"                     -- Force specific tool
 ```
+
+## Adding New Examples
+
+When adding a new example:
+1. Create `examples/<name>/Main.hs`
+2. Add executable stanza to `claude.cabal`
+3. Document in `examples/README.md`
+
+## Releasing Changes
+
+When making changes to the library:
+1. Bump version in `claude.cabal`
+2. Add entry to `CHANGELOG.md` describing the changes

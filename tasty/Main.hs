@@ -21,6 +21,7 @@ import           Data.Foldable (toList)
 import qualified Data.IORef as IORef
 import           Data.Maybe (mapMaybe)
 import qualified Data.Text as Text
+import qualified Data.Text.Encoding as Text
 import qualified Data.Vector as Vector
 import qualified Network.HTTP.Client as HTTP.Client
 import qualified Network.HTTP.Client.TLS as TLS
@@ -178,7 +179,9 @@ main = do
                                     ]
                                 ]
                             , Tool.required = Just ["expression"]
+                            , Tool.additionalProperties = Nothing
                             }
+                        , Tool.strict = Nothing
                         }
 
                 Messages.MessageResponse{ stop_reason, content } <-
@@ -233,6 +236,121 @@ main = do
                 HUnit.assertBool "Should have positive token count"
                     (input_tokens > 0)
 
+    -- Structured outputs tests require beta header
+    let structuredOutputsOptions = V1.defaultClientOptions
+            { V1.apiKey = Text.pack key
+            , V1.anthropicBeta = Just "structured-outputs-2025-11-13"
+            }
+    let V1.Methods{ V1.createMessage = createMessageStructured } =
+            V1.makeMethodsWith clientEnv structuredOutputsOptions
+
+    let jsonOutputsTest =
+            HUnit.testCase "Create message - JSON outputs" do
+                -- Define output schema
+                let outputSchema = Aeson.object
+                        [ "type" Aeson..= ("object" :: Text.Text)
+                        , "properties" Aeson..= Aeson.object
+                            [ "name" Aeson..= Aeson.object
+                                [ "type" Aeson..= ("string" :: Text.Text)
+                                ]
+                            , "age" Aeson..= Aeson.object
+                                [ "type" Aeson..= ("integer" :: Text.Text)
+                                ]
+                            ]
+                        , "required" Aeson..= (["name", "age"] :: [Text.Text])
+                        , "additionalProperties" Aeson..= False
+                        ]
+
+                Messages.MessageResponse{ stop_reason, content } <-
+                    createMessageStructured
+                        Messages._CreateMessage
+                            { Messages.model = model
+                            , Messages.messages =
+                                [ Messages.Message
+                                    { Messages.role = Messages.User
+                                    , Messages.content =
+                                        [ Messages.textContent "Extract: John Smith is 30 years old."
+                                        ]
+                                    , Messages.cache_control = Nothing
+                                    }
+                                ]
+                            , Messages.max_tokens = 200
+                            , Messages.output_format = Just (Messages.jsonSchemaFormat outputSchema)
+                            }
+
+                -- Should complete normally
+                HUnit.assertEqual "Should complete with end_turn"
+                    (Just Messages.End_Turn)
+                    stop_reason
+
+                -- Should have text content that is valid JSON
+                case toList content of
+                    [Messages.ContentBlock_Text{ Messages.text = jsonText }] -> do
+                        case Aeson.eitherDecodeStrict (Text.encodeUtf8 jsonText) of
+                            Left err -> HUnit.assertFailure $ "Invalid JSON: " <> err
+                            Right (obj :: Aeson.Value) -> do
+                                -- Check it has the expected structure
+                                case obj of
+                                    Aeson.Object _ -> pure ()
+                                    _ -> HUnit.assertFailure "Expected JSON object"
+                    _ -> HUnit.assertFailure "Expected single text content block"
+
+    let strictToolUseTest =
+            HUnit.testCase "Create message - strict tool use" do
+                -- Define a tool with strict mode
+                let strictTool = Tool.strictFunctionTool
+                        "get_user"
+                        (Just "Get user by ID")
+                        $ Aeson.object
+                            [ "type" Aeson..= ("object" :: Text.Text)
+                            , "properties" Aeson..= Aeson.object
+                                [ "user_id" Aeson..= Aeson.object
+                                    [ "type" Aeson..= ("integer" :: Text.Text)
+                                    , "description" Aeson..= ("The user ID" :: Text.Text)
+                                    ]
+                                ]
+                            , "required" Aeson..= (["user_id"] :: [Text.Text])
+                            ]
+
+                Messages.MessageResponse{ stop_reason, content } <-
+                    createMessageStructured
+                        Messages._CreateMessage
+                            { Messages.model = model
+                            , Messages.messages =
+                                [ Messages.Message
+                                    { Messages.role = Messages.User
+                                    , Messages.content =
+                                        [ Messages.textContent "Get user 42"
+                                        ]
+                                    , Messages.cache_control = Nothing
+                                    }
+                                ]
+                            , Messages.max_tokens = 200
+                            , Messages.tools = Just [Tool.inlineTool strictTool]
+                            , Messages.tool_choice = Just Tool.ToolChoice_Any
+                            }
+
+                -- Should stop for tool use
+                HUnit.assertEqual "Should stop for tool use"
+                    (Just Messages.Tool_Use)
+                    stop_reason
+
+                -- Should have a tool_use block with integer user_id
+                let toolUseBlocks =
+                        [ (toolId, toolInput)
+                        | Messages.ContentBlock_Tool_Use{ Messages.id = toolId, Messages.input = toolInput }
+                            <- toList content
+                        ]
+                case toolUseBlocks of
+                    [(_, toolInput)] -> do
+                        -- Verify user_id is an integer (strict mode guarantees this)
+                        case Aeson.Types.parseMaybe (Aeson.withObject "input" (\o -> o Aeson..: "user_id")) toolInput of
+                            Just (userId :: Int) ->
+                                HUnit.assertEqual "user_id should be 42" 42 userId
+                            Nothing ->
+                                HUnit.assertFailure "user_id should be present and be an integer"
+                    _ -> HUnit.assertFailure "Expected exactly one tool_use block"
+
     -- Tool search test requires beta header
     let betaOptions = V1.defaultClientOptions
             { V1.apiKey = Text.pack key
@@ -255,7 +373,9 @@ main = do
                                     ]
                                 ]
                             , Tool.required = Just ["location"]
+                            , Tool.additionalProperties = Nothing
                             }
+                        , Tool.strict = Nothing
                         }
 
                 let stockTool = Tool.Tool
@@ -269,7 +389,9 @@ main = do
                                     ]
                                 ]
                             , Tool.required = Just ["ticker"]
+                            , Tool.additionalProperties = Nothing
                             }
+                        , Tool.strict = Nothing
                         }
 
                 let calculatorTool' = Tool.Tool
@@ -283,7 +405,9 @@ main = do
                                     ]
                                 ]
                             , Tool.required = Just ["expression"]
+                            , Tool.additionalProperties = Nothing
                             }
+                        , Tool.strict = Nothing
                         }
 
                 -- Use tool search with deferred tools
@@ -339,7 +463,9 @@ main = do
                                     ]
                                 ]
                             , Tool.required = Just ["key"]
+                            , Tool.additionalProperties = Nothing
                             }
+                        , Tool.strict = Nothing
                         }
 
                 -- Tools: code execution + query tool with allowed_callers
@@ -457,6 +583,8 @@ main = do
             , messagesConversationTest
             , toolUseTest
             , tokenCountingTest
+            , jsonOutputsTest
+            , strictToolUseTest
             , toolSearchTest
             , programmaticToolCallingTest
             ]

@@ -33,6 +33,7 @@ module Claude.V1.Tool
     , ToolSearchToolType(..)
       -- * Tool constructors
     , functionTool
+    , strictFunctionTool
     , simpleInputSchema
       -- * ToolDefinition constructors
     , inlineTool
@@ -64,17 +65,31 @@ import qualified Data.Vector as Vector
 -- | Tool input schema (JSON Schema)
 --
 -- The schema follows JSON Schema format. At minimum, specify @type_@ as \"object\".
+-- For strict mode (structured outputs), set @additionalProperties = Just False@.
 data InputSchema = InputSchema
     { type_ :: Text
     , properties :: Maybe Value
     , required :: Maybe (Vector Text)
+    , additionalProperties :: Maybe Bool
+    -- ^ For strict mode, must be @Just False@
     } deriving stock (Eq, Generic, Show)
 
 instance FromJSON InputSchema where
-    parseJSON = genericParseJSON aesonOptions
+    parseJSON = Aeson.withObject "InputSchema" $ \o -> do
+        type_ <- o Aeson..: "type"
+        properties <- o Aeson..:? "properties"
+        required <- o Aeson..:? "required"
+        additionalProperties <- o Aeson..:? "additionalProperties"
+        pure InputSchema{ type_, properties, required, additionalProperties }
 
 instance ToJSON InputSchema where
-    toJSON = genericToJSON aesonOptions
+    toJSON InputSchema{ type_, properties, required, additionalProperties } =
+        Aeson.object $ filter ((/= Aeson.Null) . snd)
+            [ "type" Aeson..= type_
+            , "properties" Aeson..= properties
+            , "required" Aeson..= required
+            , "additionalProperties" Aeson..= additionalProperties
+            ]
 
 -- | Create a simple input schema with properties and required fields
 simpleInputSchema
@@ -85,16 +100,22 @@ simpleInputSchema props reqs = InputSchema
     { type_ = "object"
     , properties = Just props
     , required = Just reqs
+    , additionalProperties = Nothing
     }
 
 -- | A tool that can be used by Claude
 --
 -- Tools allow Claude to call external functions. When Claude decides to use a tool,
 -- it will return a @tool_use@ content block with the tool name and input arguments.
+--
+-- Set @strict = Just True@ to enable strict schema validation (structured outputs).
+-- This requires the @structured-outputs-2025-11-13@ beta header.
 data Tool = Tool
     { name :: Text
     , description :: Maybe Text
     , input_schema :: InputSchema
+    , strict :: Maybe Bool
+    -- ^ Enable strict schema validation for tool inputs (structured outputs beta)
     } deriving stock (Eq, Generic, Show)
 
 instance FromJSON Tool where
@@ -106,6 +127,7 @@ instance ToJSON Tool where
 -- | Create a function tool with a name, description, and JSON schema for parameters
 --
 -- This is the primary way to define tools for Claude.
+-- To enable strict schema validation, use 'strictFunctionTool' instead.
 functionTool
     :: Text           -- ^ Tool name (must match [a-zA-Z0-9_-]+)
     -> Maybe Text     -- ^ Description of what the tool does
@@ -126,12 +148,32 @@ functionTool toolName toolDescription schema = Tool
                 Just (Aeson.Array arr) -> Just (Vector.mapMaybe getString arr)
                 _ -> Nothing
             _ -> Nothing
+        , additionalProperties = Nothing
         }
+    , strict = Nothing
     }
   where
     getString (Aeson.String s) = Just s
     getString _ = Nothing
     lookupKey k obj = KeyMap.lookup (Key.fromText k) obj
+
+-- | Create a function tool with strict schema validation enabled
+--
+-- This is like 'functionTool' but enables strict mode for structured outputs.
+-- Automatically sets @additionalProperties = False@ as required by the API.
+-- Requires the @structured-outputs-2025-11-13@ beta header.
+strictFunctionTool
+    :: Text           -- ^ Tool name (must match [a-zA-Z0-9_-]+)
+    -> Maybe Text     -- ^ Description of what the tool does
+    -> Value          -- ^ JSON Schema for the input parameters
+    -> Tool
+strictFunctionTool toolName toolDescription schema =
+    let tool = functionTool toolName toolDescription schema
+        inputSchema = input_schema tool
+    in tool
+        { strict = Just True
+        , input_schema = inputSchema{ additionalProperties = Just False }
+        }
 
 -- | Controls which tool the model should use
 data ToolChoice
@@ -258,7 +300,7 @@ instance FromJSON ToolDefinition where
         isCodeExecutionType t = t == "code_execution_20250825"
 
 instance ToJSON ToolDefinition where
-    toJSON (ToolDef_Function Tool{ name, description, input_schema } defer_loading allowed_callers) =
+    toJSON (ToolDef_Function Tool{ name, description, input_schema, strict } defer_loading allowed_callers) =
         Aeson.Object (baseMap <> optionalFields)
       where
         baseObj = Aeson.object $
@@ -270,7 +312,8 @@ instance ToJSON ToolDefinition where
             _ -> KeyMap.empty
         optionalFields = KeyMap.fromList $
             maybe [] (\dl -> [("defer_loading", Aeson.toJSON dl)]) defer_loading <>
-            maybe [] (\ac -> [("allowed_callers", Aeson.toJSON ac)]) allowed_callers
+            maybe [] (\ac -> [("allowed_callers", Aeson.toJSON ac)]) allowed_callers <>
+            maybe [] (\s -> [("strict", Aeson.toJSON s)]) strict
     toJSON (ToolDef_SearchTool searchTool) = Aeson.toJSON searchTool
     toJSON (ToolDef_CodeExecutionTool name type_) = Aeson.object
         [ "name" Aeson..= name

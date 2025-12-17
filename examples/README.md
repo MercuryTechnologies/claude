@@ -32,6 +32,18 @@ Requires beta header: `advanced-tool-use-2025-11-20` and the `code_execution_202
 
 Vision/image analysis. Sends a base64-encoded image to Claude and receives a description.
 
+## claude-structured-outputs-example
+
+[Structured outputs](https://docs.anthropic.com/en/docs/build-with-claude/structured-outputs) constrain Claude's responses to follow a specific schema, ensuring valid, parseable output for downstream processing.
+
+The example demonstrates two features:
+
+1. **JSON outputs** (`output_format`): Extract structured data from text using `jsonSchemaFormat` to guarantee valid JSON matching your schema.
+
+2. **Strict tool use** (`strict: true`): Validate tool parameters using `strictFunctionTool` to guarantee schema-compliant tool inputs.
+
+Requires beta header: `structured-outputs-2025-11-13`
+
 ---
 
 Run any example with:

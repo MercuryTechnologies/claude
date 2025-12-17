@@ -66,7 +66,9 @@ weatherTool = Tool.Tool
                 ]
             ]
         , Tool.required = Just ["location"]
+        , Tool.additionalProperties = Nothing
         }
+    , Tool.strict = Nothing
     }
 
 main :: IO ()
