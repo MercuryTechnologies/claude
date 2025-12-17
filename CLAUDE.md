@@ -86,6 +86,7 @@ When adding a new example:
 1. Create `examples/<name>/Main.hs`
 2. Add executable stanza to `claude.cabal`
 3. Document in `examples/README.md`
+4. Add to examples list in `README.md`
 
 ## Releasing Changes
 

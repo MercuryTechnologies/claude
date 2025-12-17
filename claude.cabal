@@ -84,7 +84,7 @@ test-suite tasty
                       , OverloadedLists
                       , OverloadedStrings
                       , RecordWildCards
-    ghc-options:      -Wall
+    ghc-options:      -Wall -Wno-missing-fields
 
 executable claude-example
     default-language: Haskell2010
@@ -127,7 +127,7 @@ executable claude-tool-example
                       , NamedFieldPuns
                       , OverloadedLists
                       , OverloadedStrings
-    ghc-options:      -Wall
+    ghc-options:      -Wall -Wno-missing-fields
 
 executable claude-vision-example
     default-language: Haskell2010
@@ -142,7 +142,7 @@ executable claude-vision-example
                       , NamedFieldPuns
                       , OverloadedLists
                       , OverloadedStrings
-    ghc-options:      -Wall
+    ghc-options:      -Wall -Wno-missing-fields
 
 executable claude-tool-search-example
     default-language: Haskell2010
@@ -156,7 +156,7 @@ executable claude-tool-search-example
                       , NamedFieldPuns
                       , OverloadedLists
                       , OverloadedStrings
-    ghc-options:      -Wall
+    ghc-options:      -Wall -Wno-missing-fields
 
 executable claude-programmatic-tool-calling-example
     default-language: Haskell2010
@@ -171,7 +171,7 @@ executable claude-programmatic-tool-calling-example
                       , NamedFieldPuns
                       , OverloadedLists
                       , OverloadedStrings
-    ghc-options:      -Wall
+    ghc-options:      -Wall -Wno-missing-fields
 
 executable claude-structured-outputs-example
     default-language: Haskell2010
@@ -186,4 +186,4 @@ executable claude-structured-outputs-example
                       , NamedFieldPuns
                       , OverloadedLists
                       , OverloadedStrings
-    ghc-options:      -Wall
+    ghc-options:      -Wall -Wno-missing-fields

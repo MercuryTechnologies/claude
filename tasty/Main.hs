@@ -167,22 +167,18 @@ main = do
 
     let toolUseTest =
             HUnit.testCase "Create message - tool use" do
-                let calculatorTool = Tool.Tool
-                        { Tool.name = "calculator"
-                        , Tool.description = Just "Perform basic arithmetic"
-                        , Tool.input_schema = Tool.InputSchema
-                            { Tool.type_ = "object"
-                            , Tool.properties = Just $ Aeson.object
+                let calculatorTool = Tool.functionTool
+                        "calculator"
+                        (Just "Perform basic arithmetic")
+                        $ Aeson.object
+                            [ "properties" Aeson..= Aeson.object
                                 [ "expression" Aeson..= Aeson.object
                                     [ "type" Aeson..= ("string" :: Text.Text)
                                     , "description" Aeson..= ("Math expression like 2+2" :: Text.Text)
                                     ]
                                 ]
-                            , Tool.required = Just ["expression"]
-                            , Tool.additionalProperties = Nothing
-                            }
-                        , Tool.strict = Nothing
-                        }
+                            , "required" Aeson..= (["expression"] :: [Text.Text])
+                            ]
 
                 Messages.MessageResponse{ stop_reason, content } <-
                     createMessage
@@ -362,53 +358,41 @@ main = do
     let toolSearchTest =
             HUnit.testCase "Create message - tool search" do
                 -- Define several tools to search through
-                let weatherTool = Tool.Tool
-                        { Tool.name = "get_weather"
-                        , Tool.description = Just "Get the current weather for a location"
-                        , Tool.input_schema = Tool.InputSchema
-                            { Tool.type_ = "object"
-                            , Tool.properties = Just $ Aeson.object
+                let weatherTool = Tool.functionTool
+                        "get_weather"
+                        (Just "Get the current weather for a location")
+                        $ Aeson.object
+                            [ "properties" Aeson..= Aeson.object
                                 [ "location" Aeson..= Aeson.object
                                     [ "type" Aeson..= ("string" :: Text.Text)
                                     ]
                                 ]
-                            , Tool.required = Just ["location"]
-                            , Tool.additionalProperties = Nothing
-                            }
-                        , Tool.strict = Nothing
-                        }
+                            , "required" Aeson..= (["location"] :: [Text.Text])
+                            ]
 
-                let stockTool = Tool.Tool
-                        { Tool.name = "get_stock_price"
-                        , Tool.description = Just "Get the stock price for a ticker"
-                        , Tool.input_schema = Tool.InputSchema
-                            { Tool.type_ = "object"
-                            , Tool.properties = Just $ Aeson.object
+                let stockTool = Tool.functionTool
+                        "get_stock_price"
+                        (Just "Get the stock price for a ticker")
+                        $ Aeson.object
+                            [ "properties" Aeson..= Aeson.object
                                 [ "ticker" Aeson..= Aeson.object
                                     [ "type" Aeson..= ("string" :: Text.Text)
                                     ]
                                 ]
-                            , Tool.required = Just ["ticker"]
-                            , Tool.additionalProperties = Nothing
-                            }
-                        , Tool.strict = Nothing
-                        }
+                            , "required" Aeson..= (["ticker"] :: [Text.Text])
+                            ]
 
-                let calculatorTool' = Tool.Tool
-                        { Tool.name = "calculator"
-                        , Tool.description = Just "Perform arithmetic calculations"
-                        , Tool.input_schema = Tool.InputSchema
-                            { Tool.type_ = "object"
-                            , Tool.properties = Just $ Aeson.object
+                let calculatorTool' = Tool.functionTool
+                        "calculator"
+                        (Just "Perform arithmetic calculations")
+                        $ Aeson.object
+                            [ "properties" Aeson..= Aeson.object
                                 [ "expression" Aeson..= Aeson.object
                                     [ "type" Aeson..= ("string" :: Text.Text)
                                     ]
                                 ]
-                            , Tool.required = Just ["expression"]
-                            , Tool.additionalProperties = Nothing
-                            }
-                        , Tool.strict = Nothing
-                        }
+                            , "required" Aeson..= (["expression"] :: [Text.Text])
+                            ]
 
                 -- Use tool search with deferred tools
                 let tools =
@@ -452,21 +436,17 @@ main = do
     let programmaticToolCallingTest =
             HUnit.testCase "Create message - programmatic tool calling" do
                 -- Define a simple tool for PTC
-                let queryTool = Tool.Tool
-                        { Tool.name = "get_data"
-                        , Tool.description = Just "Get data for a key"
-                        , Tool.input_schema = Tool.InputSchema
-                            { Tool.type_ = "object"
-                            , Tool.properties = Just $ Aeson.object
+                let queryTool = Tool.functionTool
+                        "get_data"
+                        (Just "Get data for a key")
+                        $ Aeson.object
+                            [ "properties" Aeson..= Aeson.object
                                 [ "key" Aeson..= Aeson.object
                                     [ "type" Aeson..= ("string" :: Text.Text)
                                     ]
                                 ]
-                            , Tool.required = Just ["key"]
-                            , Tool.additionalProperties = Nothing
-                            }
-                        , Tool.strict = Nothing
-                        }
+                            , "required" Aeson..= (["key"] :: [Text.Text])
+                            ]
 
                 -- Tools: code execution + query tool with allowed_callers
                 let tools =

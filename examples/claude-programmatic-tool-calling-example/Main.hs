@@ -33,23 +33,19 @@ import qualified System.Environment as Environment
 
 -- | Define a query_database tool that Claude can call programmatically
 queryDatabaseTool :: Tool.Tool
-queryDatabaseTool = Tool.Tool
-    { Tool.name = "query_database"
-    , Tool.description = Just "Query a regional database for sales data. Returns sales figures for the specified region."
-    , Tool.input_schema = Tool.InputSchema
-        { Tool.type_ = "object"
-        , Tool.properties = Just $ Aeson.object
+queryDatabaseTool = Tool.functionTool
+    "query_database"
+    (Just "Query a regional database for sales data. Returns sales figures for the specified region.")
+    $ Aeson.object
+        [ "properties" Aeson..= Aeson.object
             [ "region" Aeson..= Aeson.object
                 [ "type" Aeson..= ("string" :: Text)
                 , "description" Aeson..= ("The region to query: west, east, or central" :: Text)
                 , "enum" Aeson..= (["west", "east", "central"] :: [Text])
                 ]
             ]
-        , Tool.required = Just ["region"]
-        , Tool.additionalProperties = Nothing
-        }
-    , Tool.strict = Nothing
-    }
+        , "required" Aeson..= (["region"] :: [Text])
+        ]
 
 -- | Fake database query - returns sales data for a region
 queryDatabase :: Text -> Text

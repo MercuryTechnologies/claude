@@ -26,48 +26,39 @@ import qualified System.Environment as Environment
 -- In a real application, you might have hundreds of tools
 
 weatherTool :: Tool.Tool
-weatherTool = Tool.Tool
-    { Tool.name = "get_weather"
-    , Tool.description = Just "Get the current weather for a location"
-    , Tool.input_schema = Tool.InputSchema
-        { Tool.type_ = "object"
-        , Tool.properties = Just $ Aeson.object
+weatherTool = Tool.functionTool
+    "get_weather"
+    (Just "Get the current weather for a location")
+    $ Aeson.object
+        [ "properties" Aeson..= Aeson.object
             [ "location" Aeson..= Aeson.object
                 [ "type" Aeson..= ("string" :: Text)
                 , "description" Aeson..= ("City and state, e.g. San Francisco, CA" :: Text)
                 ]
             ]
-        , Tool.required = Just ["location"]
-        , Tool.additionalProperties = Nothing
-        }
-    , Tool.strict = Nothing
-    }
+        , "required" Aeson..= (["location"] :: [Text])
+        ]
 
 stockPriceTool :: Tool.Tool
-stockPriceTool = Tool.Tool
-    { Tool.name = "get_stock_price"
-    , Tool.description = Just "Get the current stock price for a ticker symbol"
-    , Tool.input_schema = Tool.InputSchema
-        { Tool.type_ = "object"
-        , Tool.properties = Just $ Aeson.object
+stockPriceTool = Tool.functionTool
+    "get_stock_price"
+    (Just "Get the current stock price for a ticker symbol")
+    $ Aeson.object
+        [ "properties" Aeson..= Aeson.object
             [ "ticker" Aeson..= Aeson.object
                 [ "type" Aeson..= ("string" :: Text)
                 , "description" Aeson..= ("Stock ticker symbol, e.g. AAPL" :: Text)
                 ]
             ]
-        , Tool.required = Just ["ticker"]
-        , Tool.additionalProperties = Nothing
-        }
-    , Tool.strict = Nothing
-    }
+        , "required" Aeson..= (["ticker"] :: [Text])
+        ]
 
 currencyConvertTool :: Tool.Tool
-currencyConvertTool = Tool.Tool
-    { Tool.name = "convert_currency"
-    , Tool.description = Just "Convert an amount from one currency to another"
-    , Tool.input_schema = Tool.InputSchema
-        { Tool.type_ = "object"
-        , Tool.properties = Just $ Aeson.object
+currencyConvertTool = Tool.functionTool
+    "convert_currency"
+    (Just "Convert an amount from one currency to another")
+    $ Aeson.object
+        [ "properties" Aeson..= Aeson.object
             [ "amount" Aeson..= Aeson.object
                 [ "type" Aeson..= ("number" :: Text)
                 , "description" Aeson..= ("Amount to convert" :: Text)
@@ -81,47 +72,36 @@ currencyConvertTool = Tool.Tool
                 , "description" Aeson..= ("Target currency code, e.g. EUR" :: Text)
                 ]
             ]
-        , Tool.required = Just ["amount", "from_currency", "to_currency"]
-        , Tool.additionalProperties = Nothing
-        }
-    , Tool.strict = Nothing
-    }
+        , "required" Aeson..= (["amount", "from_currency", "to_currency"] :: [Text])
+        ]
 
 calculatorTool :: Tool.Tool
-calculatorTool = Tool.Tool
-    { Tool.name = "calculator"
-    , Tool.description = Just "Perform basic arithmetic calculations"
-    , Tool.input_schema = Tool.InputSchema
-        { Tool.type_ = "object"
-        , Tool.properties = Just $ Aeson.object
+calculatorTool = Tool.functionTool
+    "calculator"
+    (Just "Perform basic arithmetic calculations")
+    $ Aeson.object
+        [ "properties" Aeson..= Aeson.object
             [ "expression" Aeson..= Aeson.object
                 [ "type" Aeson..= ("string" :: Text)
                 , "description" Aeson..= ("Math expression to evaluate, e.g. 2+2" :: Text)
                 ]
             ]
-        , Tool.required = Just ["expression"]
-        , Tool.additionalProperties = Nothing
-        }
-    , Tool.strict = Nothing
-    }
+        , "required" Aeson..= (["expression"] :: [Text])
+        ]
 
 searchWebTool :: Tool.Tool
-searchWebTool = Tool.Tool
-    { Tool.name = "search_web"
-    , Tool.description = Just "Search the web for information"
-    , Tool.input_schema = Tool.InputSchema
-        { Tool.type_ = "object"
-        , Tool.properties = Just $ Aeson.object
+searchWebTool = Tool.functionTool
+    "search_web"
+    (Just "Search the web for information")
+    $ Aeson.object
+        [ "properties" Aeson..= Aeson.object
             [ "query" Aeson..= Aeson.object
                 [ "type" Aeson..= ("string" :: Text)
                 , "description" Aeson..= ("Search query" :: Text)
                 ]
             ]
-        , Tool.required = Just ["query"]
-        , Tool.additionalProperties = Nothing
-        }
-    , Tool.strict = Nothing
-    }
+        , "required" Aeson..= (["query"] :: [Text])
+        ]
 
 main :: IO ()
 main = do

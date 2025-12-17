@@ -49,12 +49,11 @@ getWeather loc u =
 
 -- | Define our weather tool
 weatherTool :: Tool.Tool
-weatherTool = Tool.Tool
-    { Tool.name = "get_weather"
-    , Tool.description = Just "Get the current weather for a location"
-    , Tool.input_schema = Tool.InputSchema
-        { Tool.type_ = "object"
-        , Tool.properties = Just $ Aeson.object
+weatherTool = Tool.functionTool
+    "get_weather"
+    (Just "Get the current weather for a location")
+    $ Aeson.object
+        [ "properties" .= Aeson.object
             [ "location" .= Aeson.object
                 [ "type" .= ("string" :: Text)
                 , "description" .= ("City and state, e.g. San Francisco, CA" :: Text)
@@ -65,11 +64,8 @@ weatherTool = Tool.Tool
                 , "description" .= ("Temperature unit" :: Text)
                 ]
             ]
-        , Tool.required = Just ["location"]
-        , Tool.additionalProperties = Nothing
-        }
-    , Tool.strict = Nothing
-    }
+        , "required" .= (["location"] :: [Text])
+        ]
 
 main :: IO ()
 main = do

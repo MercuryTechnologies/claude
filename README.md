@@ -89,21 +89,26 @@ cabal run claude-tool-example
 cabal run claude-vision-example
 cabal run claude-tool-search-example
 cabal run claude-programmatic-tool-calling-example
+cabal run claude-structured-outputs-example
 ```
 
 ### Advanced Examples
 
-The `claude-tool-search-example` and `claude-programmatic-tool-calling-example` demonstrate beta features that require the `advanced-tool-use-2025-11-20` beta header:
+Several examples demonstrate beta features:
 
-- **[Tool Search Tool](https://platform.claude.com/docs/en/agents-and-tools/tool-use/tool-search-tool)**: Server-side tool search for efficiently handling large numbers of tools
-- **[Programmatic Tool Calling (PTC)](https://platform.claude.com/docs/en/agents-and-tools/tool-use/programmatic-tool-calling)**: Claude writes and executes code to call multiple tools and aggregate results
+**Tool Search & Programmatic Tool Calling** (`advanced-tool-use-2025-11-20`):
+- **[Tool Search Tool](https://docs.anthropic.com/en/docs/agents-and-tools/tool-use/tool-search-tool)**: Server-side tool search for efficiently handling large numbers of tools
+- **[Programmatic Tool Calling (PTC)](https://docs.anthropic.com/en/docs/agents-and-tools/tool-use/programmatic-tool-calling)**: Claude writes and executes code to call multiple tools and aggregate results
 
-To enable these features, use `makeMethodsWith` with the beta header:
+**Structured Outputs** (`structured-outputs-2025-11-13`):
+- **[Structured Outputs](https://docs.anthropic.com/en/docs/build-with-claude/structured-outputs)**: Constrain Claude's responses to follow a specific JSON schema, or validate tool parameters with strict mode
+
+To enable beta features, use `makeMethodsWith` with the appropriate beta header:
 
 ```haskell
 let options = defaultClientOptions
         { apiKey = key
-        , anthropicBeta = Just "advanced-tool-use-2025-11-20"
+        , anthropicBeta = Just "structured-outputs-2025-11-13"
         }
 let Methods{ createMessage } = makeMethodsWith clientEnv options
 ```
