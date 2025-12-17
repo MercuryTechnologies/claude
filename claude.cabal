@@ -1,6 +1,6 @@
 cabal-version:      2.4
 name:               claude
-version:            0.1.0
+version:            1.0.0
 synopsis:           Servant bindings to Anthropic's Claude API
 description:        This package provides comprehensive and type-safe bindings
                     to Anthropic's Claude API, providing both a Servant interface
