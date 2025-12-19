@@ -80,7 +80,7 @@ cabal test
 
 ## Running the Examples
 
-See [examples/README.md](examples/README.md) for descriptions of each example.
+See [examples](examples) for descriptions.
 
 ```bash
 cabal run claude-example
@@ -97,11 +97,11 @@ cabal run claude-structured-outputs-example
 Several examples demonstrate beta features:
 
 **Tool Search & Programmatic Tool Calling** (`advanced-tool-use-2025-11-20`):
-- **[Tool Search Tool](https://docs.anthropic.com/en/docs/agents-and-tools/tool-use/tool-search-tool)**: Server-side tool search for efficiently handling large numbers of tools
-- **[Programmatic Tool Calling (PTC)](https://docs.anthropic.com/en/docs/agents-and-tools/tool-use/programmatic-tool-calling)**: Claude writes and executes code to call multiple tools and aggregate results
+- **[Tool Search Tool](https://platform.claude.com/docs/en/agents-and-tools/tool-use/tool-search-tool)**: Server-side tool search for efficiently handling large numbers of tools
+- **[Programmatic Tool Calling (PTC)](https://platform.claude.com/docs/en/agents-and-tools/tool-use/programmatic-tool-calling)**: Claude writes and executes code to call multiple tools and aggregate results
 
 **Structured Outputs** (`structured-outputs-2025-11-13`):
-- **[Structured Outputs](https://docs.anthropic.com/en/docs/build-with-claude/structured-outputs)**: Constrain Claude's responses to follow a specific JSON schema, or validate tool parameters with strict mode
+- **[Structured Outputs](https://platform.claude.com/docs/en/build-with-claude/structured-outputs)**: Constrain Claude's responses to follow a specific JSON schema, or validate tool parameters with strict mode
 
 To enable beta features, use `makeMethodsWith` with the appropriate beta header:
 

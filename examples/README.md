@@ -14,7 +14,7 @@ Tool/function calling. Defines a `get_weather` tool, handles `tool_use` response
 
 ## claude-tool-search-example
 
-Server-side [tool search](https://docs.anthropic.com/en/docs/agents-and-tools/tool-use/tool-search-tool) for working with large tool catalogs. Instead of loading all tool definitions upfront, Claude searches and loads only the tools it needs on-demand. This keeps context efficient and improves tool selection accuracy when you have many tools (30+).
+Server-side [tool search](https://platform.claude.com/docs/en/agents-and-tools/tool-use/tool-search-tool) for working with large tool catalogs. Instead of loading all tool definitions upfront, Claude searches and loads only the tools it needs on-demand. This keeps context efficient and improves tool selection accuracy when you have many tools (30+).
 
 The example defines several tools (weather, stock price, currency conversion, calculator, web search) with `defer_loading: true`, then uses `tool_search_tool_regex` to discover relevant tools at runtime.
 
@@ -22,7 +22,7 @@ Requires beta header: `advanced-tool-use-2025-11-20`
 
 ## claude-programmatic-tool-calling-example
 
-[Programmatic Tool Calling (PTC)](https://docs.anthropic.com/en/docs/agents-and-tools/tool-use/programmatic-tool-calling) allows Claude to write code that calls tools within a code execution container, rather than requiring round trips through the model for each tool invocation. This reduces latency for multi-tool workflows and decreases token consumption by allowing Claude to filter or process data before it reaches the context window.
+[Programmatic Tool Calling (PTC)](https://platform.claude.com/docs/en/agents-and-tools/tool-use/programmatic-tool-calling) allows Claude to write code that calls tools within a code execution container, rather than requiring round trips through the model for each tool invocation. This reduces latency for multi-tool workflows and decreases token consumption by allowing Claude to filter or process data before it reaches the context window.
 
 The example defines a `query_database` tool with `allowed_callers = ["code_execution_20250825"]`. Claude then writes Python code that queries multiple database regions in a loop and aggregates the results—all in a single code execution, rather than multiple model round trips.
 
@@ -34,7 +34,7 @@ Vision/image analysis. Sends a base64-encoded image to Claude and receives a des
 
 ## claude-structured-outputs-example
 
-[Structured outputs](https://docs.anthropic.com/en/docs/build-with-claude/structured-outputs) constrain Claude's responses to follow a specific schema, ensuring valid, parseable output for downstream processing.
+[Structured outputs](https://platform.claude.com/docs/en/build-with-claude/structured-outputs) constrain Claude's responses to follow a specific schema, ensuring valid, parseable output for downstream processing.
 
 The example demonstrates two features:
 
