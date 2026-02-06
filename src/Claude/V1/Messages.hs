@@ -13,6 +13,8 @@ module Claude.V1.Messages
     , jsonSchemaConfig
     , jsonSchemaFormat
     , effortConfig
+      -- * Thinking
+    , Thinking(..)
       -- * Content types
     , Content(..)
     , ContentBlock(..)
@@ -194,6 +196,8 @@ data Content
         , input :: Value
         }
     | Content_Tool_Result { tool_use_id :: Text, content :: Maybe Text, is_error :: Maybe Bool }
+    | Content_Thinking { thinking :: Text, signature :: Text }
+    | Content_Redacted_Thinking { data_ :: Text }
     deriving stock (Generic, Show)
 
 -- | Create a text content block without cache control
@@ -245,6 +249,10 @@ contentBlockToContent (ContentBlock_Server_Tool_Use toolId toolName toolInput) =
         }
 contentBlockToContent ContentBlock_Tool_Search_Tool_Result{} = Nothing
 contentBlockToContent ContentBlock_Code_Execution_Tool_Result{} = Nothing
+contentBlockToContent (ContentBlock_Thinking t sig) =
+    Just Content_Thinking{ thinking = t, signature = sig }
+contentBlockToContent (ContentBlock_Redacted_Thinking d) =
+    Just Content_Redacted_Thinking{ data_ = d }
 contentBlockToContent ContentBlock_Unknown{} = Nothing
 
 -- | A reference to a tool found by tool search
@@ -411,6 +419,8 @@ data ContentBlock
         { tool_use_id :: Text
         , code_execution_content :: CodeExecutionToolResultContent
         }
+    | ContentBlock_Thinking { thinking :: Text, signature :: Text }
+    | ContentBlock_Redacted_Thinking { data_ :: Text }
     | ContentBlock_Unknown { type_ :: Text, raw :: Value }
     deriving stock (Generic, Show)
 
@@ -442,6 +452,11 @@ instance FromJSON ContentBlock where
                     { tool_use_id = toolUseId
                     , code_execution_content = execContent
                     }
+            "thinking" -> ContentBlock_Thinking
+                <$> o Aeson..: "thinking"
+                <*> o Aeson..: "signature"
+            "redacted_thinking" -> ContentBlock_Redacted_Thinking
+                <$> o Aeson..: "data"
             _ -> pure (ContentBlock_Unknown t (Aeson.Object o))
 
 instance ToJSON ContentBlock where
@@ -471,6 +486,15 @@ instance ToJSON ContentBlock where
         , "tool_use_id" Aeson..= toolUseId
         , "content" Aeson..= execContent
         ]
+    toJSON (ContentBlock_Thinking t sig) = Aeson.object
+        [ "type" Aeson..= ("thinking" :: Text)
+        , "thinking" Aeson..= t
+        , "signature" Aeson..= sig
+        ]
+    toJSON (ContentBlock_Redacted_Thinking d) = Aeson.object
+        [ "type" Aeson..= ("redacted_thinking" :: Text)
+        , "data" Aeson..= d
+        ]
     toJSON (ContentBlock_Unknown _typeName rawVal) = rawVal
 
 -- | A message in the conversation
@@ -496,7 +520,9 @@ data StopReason
     | Stop_Sequence
     | Tool_Use
     | Refusal
-    -- ^ Model refused the request for safety reasons (structured outputs only)
+    -- ^ Model refused the request for safety reasons
+    | Model_Context_Window_Exceeded
+    -- ^ Generation stopped because the context window limit was reached (Claude 4.5+)
     deriving stock (Eq, Generic, Show)
 
 stopReasonOptions :: Options
@@ -664,6 +690,43 @@ jsonSchemaConfig s = OutputConfig
     , format = Just $ jsonSchemaFormat s
     }
 
+-- | Thinking configuration for extended thinking
+--
+-- * 'ThinkingAdaptive': Let Claude decide when and how much to think (Opus 4.6+).
+--   Use the effort parameter ('effortConfig') to guide thinking depth.
+-- * 'ThinkingEnabled': Enable thinking with a fixed token budget
+--   (all models; deprecated on Opus 4.6).
+--
+-- @
+-- -- Adaptive thinking (recommended for Opus 4.6)
+-- thinking = Just ThinkingAdaptive
+--
+-- -- Manual thinking with budget (older models)
+-- thinking = Just ThinkingEnabled{ budget_tokens = 32000 }
+-- @
+data Thinking
+    = ThinkingAdaptive
+    | ThinkingEnabled { budget_tokens :: Natural }
+    deriving stock (Eq, Generic, Show)
+
+instance FromJSON Thinking where
+    parseJSON = Aeson.withObject "Thinking" $ \o -> do
+        t <- o Aeson..: "type"
+        case (t :: Text) of
+            "adaptive" -> pure ThinkingAdaptive
+            "enabled" -> do
+                budget <- o Aeson..: "budget_tokens"
+                pure ThinkingEnabled{ budget_tokens = budget }
+            _ -> fail $ "Unknown thinking type: " <> show t
+
+instance ToJSON Thinking where
+    toJSON ThinkingAdaptive = Aeson.object
+        [ "type" Aeson..= ("adaptive" :: Text) ]
+    toJSON (ThinkingEnabled budget) = Aeson.object
+        [ "type" Aeson..= ("enabled" :: Text)
+        , "budget_tokens" Aeson..= budget
+        ]
+
 -- | Create a JSON schema output format
 jsonSchemaFormat :: Value -> OutputFormat
 jsonSchemaFormat s = OutputFormat
@@ -692,6 +755,9 @@ data CreateMessage = CreateMessage
     , output_config :: Maybe OutputConfig
     -- ^ Output configuration: effort level and/or structured output format.
     -- Use 'effortConfig', 'jsonSchemaConfig', or construct 'OutputConfig' directly.
+    , thinking :: Maybe Thinking
+    -- ^ Thinking configuration. Use 'ThinkingAdaptive' for Opus 4.6
+    -- or 'ThinkingEnabled' with @budget_tokens@ for older models.
     } deriving stock (Generic, Show)
 
 instance FromJSON CreateMessage where
@@ -717,6 +783,7 @@ _CreateMessage = CreateMessage
     , tool_choice = Nothing
     , container = Nothing
     , output_config = Nothing
+    , thinking = Nothing
     }
 
 -- | Text delta in streaming
@@ -740,6 +807,8 @@ instance ToJSON InputJsonDelta where
 data ContentBlockDelta
     = Delta_Text_Delta { text :: Text }
     | Delta_Input_Json_Delta { partial_json :: Text }
+    | Delta_Thinking_Delta { thinking :: Text }
+    | Delta_Signature_Delta { signature :: Text }
     deriving stock (Generic, Show)
 
 contentBlockDeltaOptions :: Options
@@ -749,6 +818,8 @@ contentBlockDeltaOptions = aesonOptions
     , constructorTagModifier = \s -> case s of
         "Delta_Text_Delta" -> "text_delta"
         "Delta_Input_Json_Delta" -> "input_json_delta"
+        "Delta_Thinking_Delta" -> "thinking_delta"
+        "Delta_Signature_Delta" -> "signature_delta"
         _ -> s
     }
 

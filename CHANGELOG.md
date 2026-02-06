@@ -1,3 +1,12 @@
+1.2.0:
+
+- Add `Thinking` type with `ThinkingAdaptive` and `ThinkingEnabled` constructors
+  - `thinking` field on `CreateMessage`
+  - `ContentBlock_Thinking` and `ContentBlock_Redacted_Thinking` response blocks
+  - `Content_Thinking` and `Content_Redacted_Thinking` for replaying thinking in multi-turn
+  - `Delta_Thinking_Delta` and `Delta_Signature_Delta` for streaming
+- Add `Model_Context_Window_Exceeded` constructor to `StopReason`
+
 1.1.0:
 
 - Replace `output_format` with `output_config` on `CreateMessage` (breaking change)

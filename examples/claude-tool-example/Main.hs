@@ -186,5 +186,9 @@ printContent (Messages.ContentBlock_Tool_Search_Tool_Result{ Messages.tool_use_i
     Text.IO.putStrLn $ "[Tool search result for: " <> tid <> "]"
 printContent (Messages.ContentBlock_Code_Execution_Tool_Result{ Messages.tool_use_id = tid, Messages.code_execution_content = _ }) =
     Text.IO.putStrLn $ "[Code execution result for: " <> tid <> "]"
+printContent (Messages.ContentBlock_Thinking{}) =
+    Text.IO.putStrLn "[Thinking]"
+printContent (Messages.ContentBlock_Redacted_Thinking{}) =
+    Text.IO.putStrLn "[Redacted thinking]"
 printContent (Messages.ContentBlock_Unknown{ Messages.type_ = t }) =
     Text.IO.putStrLn $ "[Unknown block type: " <> t <> "]"

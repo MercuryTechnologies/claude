@@ -193,5 +193,9 @@ printContent (Messages.ContentBlock_Tool_Search_Tool_Result{ Messages.tool_use_i
             Text.IO.putStrLn "    Unknown result type"
 printContent (Messages.ContentBlock_Code_Execution_Tool_Result{ Messages.tool_use_id = tid }) =
     Text.IO.putStrLn $ "  [code_execution_result] for tool_use_id: " <> tid
+printContent (Messages.ContentBlock_Thinking{}) =
+    Text.IO.putStrLn "  [thinking]"
+printContent (Messages.ContentBlock_Redacted_Thinking{}) =
+    Text.IO.putStrLn "  [redacted_thinking]"
 printContent (Messages.ContentBlock_Unknown{ Messages.type_ = t }) =
     Text.IO.putStrLn $ "  [unknown] type: " <> t
