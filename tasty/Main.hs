@@ -232,14 +232,6 @@ main = do
                 HUnit.assertBool "Should have positive token count"
                     (input_tokens > 0)
 
-    -- Structured outputs tests require beta header
-    let structuredOutputsOptions = V1.defaultClientOptions
-            { V1.apiKey = Text.pack key
-            , V1.anthropicBeta = Just "structured-outputs-2025-11-13"
-            }
-    let V1.Methods{ V1.createMessage = createMessageStructured } =
-            V1.makeMethodsWith clientEnv structuredOutputsOptions
-
     let jsonOutputsTest =
             HUnit.testCase "Create message - JSON outputs" do
                 -- Define output schema
@@ -258,7 +250,7 @@ main = do
                         ]
 
                 Messages.MessageResponse{ stop_reason, content } <-
-                    createMessageStructured
+                    createMessage
                         Messages._CreateMessage
                             { Messages.model = model
                             , Messages.messages =
@@ -271,7 +263,7 @@ main = do
                                     }
                                 ]
                             , Messages.max_tokens = 200
-                            , Messages.output_format = Just (Messages.jsonSchemaFormat outputSchema)
+                            , Messages.output_config = Just (Messages.jsonSchemaConfig outputSchema)
                             }
 
                 -- Should complete normally
@@ -309,7 +301,7 @@ main = do
                             ]
 
                 Messages.MessageResponse{ stop_reason, content } <-
-                    createMessageStructured
+                    createMessage
                         Messages._CreateMessage
                             { Messages.model = model
                             , Messages.messages =

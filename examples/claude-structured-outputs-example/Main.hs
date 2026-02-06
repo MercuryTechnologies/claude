@@ -6,10 +6,8 @@
 -- | Example demonstrating structured outputs with Claude
 --
 -- This example shows how to use:
--- 1. JSON outputs (output_format) to get structured JSON responses
+-- 1. JSON outputs (output_config.format) to get structured JSON responses
 -- 2. Strict tool use (strict: true) to validate tool parameters
---
--- Requires the structured-outputs-2025-11-13 beta header.
 module Main where
 
 import Data.Aeson (FromJSON(..), (.:), (.=))
@@ -48,10 +46,8 @@ main = do
     key <- Text.pack <$> Environment.getEnv "ANTHROPIC_KEY"
     env <- V1.getClientEnv "https://api.anthropic.com"
 
-    -- Use makeMethodsWith to pass the structured outputs beta header
     let options = V1.defaultClientOptions
             { V1.apiKey = key
-            , V1.anthropicBeta = Just "structured-outputs-2025-11-13"
             }
 
     let V1.Methods{ V1.createMessage } = V1.makeMethodsWith env options
@@ -66,7 +62,7 @@ main = do
     Text.IO.putStrLn "=== Example 2: Strict Tool Use ===\n"
     strictToolUseExample createMessage
 
--- | Example using output_format to get structured JSON responses
+-- | Example using output_config to get structured JSON responses
 jsonOutputsExample :: (Messages.CreateMessage -> IO Messages.MessageResponse) -> IO ()
 jsonOutputsExample createMessage = do
     let emailText = "Hi there! I'm John Smith from Acme Corp (john.smith@acme.com). \
@@ -111,7 +107,7 @@ jsonOutputsExample createMessage = do
         { Messages.model = "claude-sonnet-4-5-20250929"
         , Messages.messages = [message]
         , Messages.max_tokens = 1024
-        , Messages.output_format = Just (Messages.jsonSchemaFormat outputSchema)
+        , Messages.output_config = Just (Messages.jsonSchemaConfig outputSchema)
         }
 
     let Messages.MessageResponse{ Messages.content = responseContent, Messages.stop_reason = stopReason } = response
