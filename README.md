@@ -94,21 +94,20 @@ cabal run claude-structured-outputs-example
 
 ### Advanced Examples
 
-Several examples demonstrate beta features:
+- **[Structured Outputs](https://platform.claude.com/docs/en/build-with-claude/structured-outputs)**: Constrain Claude's responses to follow a specific JSON schema, or validate tool parameters with strict mode
+
+The following examples require beta features:
 
 **Tool Search & Programmatic Tool Calling** (`advanced-tool-use-2025-11-20`):
 - **[Tool Search Tool](https://platform.claude.com/docs/en/agents-and-tools/tool-use/tool-search-tool)**: Server-side tool search for efficiently handling large numbers of tools
 - **[Programmatic Tool Calling (PTC)](https://platform.claude.com/docs/en/agents-and-tools/tool-use/programmatic-tool-calling)**: Claude writes and executes code to call multiple tools and aggregate results
-
-**Structured Outputs** (`structured-outputs-2025-11-13`):
-- **[Structured Outputs](https://platform.claude.com/docs/en/build-with-claude/structured-outputs)**: Constrain Claude's responses to follow a specific JSON schema, or validate tool parameters with strict mode
 
 To enable beta features, use `makeMethodsWith` with the appropriate beta header:
 
 ```haskell
 let options = defaultClientOptions
         { apiKey = key
-        , anthropicBeta = Just "structured-outputs-2025-11-13"
+        , anthropicBeta = Just "advanced-tool-use-2025-11-20"
         }
 let Methods{ createMessage } = makeMethodsWith clientEnv options
 ```

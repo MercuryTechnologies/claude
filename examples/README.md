@@ -38,11 +38,9 @@ Vision/image analysis. Sends a base64-encoded image to Claude and receives a des
 
 The example demonstrates two features:
 
-1. **JSON outputs** (`output_format`): Extract structured data from text using `jsonSchemaFormat` to guarantee valid JSON matching your schema.
+1. **JSON outputs** (`output_config`): Extract structured data from text using `jsonSchemaConfig` to guarantee valid JSON matching your schema.
 
 2. **Strict tool use** (`strict: true`): Validate tool parameters using `strictFunctionTool` to guarantee schema-compliant tool inputs.
-
-Requires beta header: `structured-outputs-2025-11-13`
 
 ---
 

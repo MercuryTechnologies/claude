@@ -109,13 +109,12 @@ simpleInputSchema props reqs = InputSchema
 -- it will return a @tool_use@ content block with the tool name and input arguments.
 --
 -- Set @strict = Just True@ to enable strict schema validation (structured outputs).
--- This requires the @structured-outputs-2025-11-13@ beta header.
 data Tool = Tool
     { name :: Text
     , description :: Maybe Text
     , input_schema :: InputSchema
     , strict :: Maybe Bool
-    -- ^ Enable strict schema validation for tool inputs (structured outputs beta)
+    -- ^ Enable strict schema validation for tool inputs
     } deriving stock (Eq, Generic, Show)
 
 instance FromJSON Tool where
@@ -161,7 +160,6 @@ functionTool toolName toolDescription schema = Tool
 --
 -- This is like 'functionTool' but enables strict mode for structured outputs.
 -- Automatically sets @additionalProperties = False@ as required by the API.
--- Requires the @structured-outputs-2025-11-13@ beta header.
 strictFunctionTool
     :: Text           -- ^ Tool name (must match [a-zA-Z0-9_-]+)
     -> Maybe Text     -- ^ Description of what the tool does

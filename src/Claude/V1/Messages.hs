@@ -7,9 +7,12 @@ module Claude.V1.Messages
     , _CreateMessage
     , MessageResponse(..)
     , MessageStreamEvent(..)
-      -- * Structured outputs
+      -- * Output configuration
+    , OutputConfig(..)
     , OutputFormat(..)
+    , jsonSchemaConfig
     , jsonSchemaFormat
+    , effortConfig
       -- * Content types
     , Content(..)
     , ContentBlock(..)
@@ -558,12 +561,10 @@ instance ToJSON MessageResponse where
 
 -- | Output format specification for structured outputs
 --
--- Use with the @structured-outputs-2025-11-13@ beta header.
---
 -- Example:
 --
 -- @
--- let outputFormat = jsonSchemaFormat $ Aeson.object
+-- let schema = Aeson.object
 --         [ "type" .= ("object" :: Text)
 --         , "properties" .= Aeson.object
 --             [ "name" .= Aeson.object ["type" .= ("string" :: Text)]
@@ -572,6 +573,10 @@ instance ToJSON MessageResponse where
 --         , "required" .= (["name", "age"] :: [Text])
 --         , "additionalProperties" .= False
 --         ]
+--     request = _CreateMessage
+--         { output_config = Just $ jsonSchemaConfig schema
+--         , ...
+--         }
 -- @
 data OutputFormat = OutputFormat
     { type_ :: Text    -- ^ Currently only "json_schema" is supported
@@ -584,9 +589,82 @@ instance FromJSON OutputFormat where
 instance ToJSON OutputFormat where
     toJSON = genericToJSON aesonOptions
 
--- | Create a JSON schema output format
+-- | Output configuration for the Messages API
+--
+-- Controls both the structured output format and the effort level.
+--
+-- __Effort__ controls how many tokens Claude uses when responding, trading off
+-- between response thoroughness and token efficiency. It affects all tokens
+-- including text responses, tool calls, and extended thinking.
+--
+-- * @"low"@  — Most efficient. Significant token savings, some capability reduction.
+--              Good for simple tasks, classification, or high-volume use cases.
+-- * @"medium"@ — Balanced approach with moderate token savings.
+-- * @"high"@ — Full capability (the default when effort is omitted).
+-- * @"max"@ — Absolute maximum capability, no constraints on token spending.
+--              Opus 4.6 only.
+--
+-- Setting @"high"@ is equivalent to not setting effort at all.
+--
+-- See <https://platform.claude.com/docs/en/build-with-claude/effort>
+--
+-- __Format__ specifies a JSON schema for structured outputs. See 'jsonSchemaFormat'.
+--
+-- Both fields are optional and can be used independently or together.
+--
+-- @
+-- -- Effort only
+-- output_config = Just $ effortConfig "low"
+--
+-- -- Structured output only
+-- output_config = Just $ jsonSchemaConfig mySchema
+--
+-- -- Both
+-- output_config = Just $ (jsonSchemaConfig mySchema) { effort = Just "low" }
+-- @
+data OutputConfig = OutputConfig
+    { effort :: Maybe Text
+    -- ^ Effort level: @"low"@, @"medium"@, @"high"@, or @"max"@.
+    -- Controls token spend vs thoroughness. @"high"@ is the default.
+    -- @"max"@ is Opus 4.6 only.
+    -- See <https://platform.claude.com/docs/en/build-with-claude/effort>
+    , format :: Maybe OutputFormat
+    -- ^ Structured output format (use 'jsonSchemaFormat' to construct)
+    } deriving stock (Eq, Generic, Show)
+
+instance FromJSON OutputConfig where
+    parseJSON = genericParseJSON aesonOptions
+
+instance ToJSON OutputConfig where
+    toJSON = genericToJSON aesonOptions
+
+-- | Create an output configuration with only an effort level
+--
+-- @
+-- output_config = Just $ effortConfig "low"
+-- @
+--
+-- See <https://platform.claude.com/docs/en/build-with-claude/effort>
+effortConfig :: Text -> OutputConfig
+effortConfig e = OutputConfig
+    { effort = Just e
+    , format = Nothing
+    }
+
+-- | Create a JSON schema output configuration
 --
 -- This is the primary way to use structured outputs.
+--
+-- @
+-- output_config = Just $ jsonSchemaConfig mySchema
+-- @
+jsonSchemaConfig :: Value -> OutputConfig
+jsonSchemaConfig s = OutputConfig
+    { effort = Nothing
+    , format = Just $ jsonSchemaFormat s
+    }
+
+-- | Create a JSON schema output format
 jsonSchemaFormat :: Value -> OutputFormat
 jsonSchemaFormat s = OutputFormat
     { type_ = "json_schema"
@@ -611,8 +689,9 @@ data CreateMessage = CreateMessage
     , tools :: Maybe (Vector ToolDefinition)
     , tool_choice :: Maybe ToolChoice
     , container :: Maybe Text
-    , output_format :: Maybe OutputFormat
-    -- ^ Structured output format (requires @structured-outputs-2025-11-13@ beta header)
+    , output_config :: Maybe OutputConfig
+    -- ^ Output configuration: effort level and/or structured output format.
+    -- Use 'effortConfig', 'jsonSchemaConfig', or construct 'OutputConfig' directly.
     } deriving stock (Generic, Show)
 
 instance FromJSON CreateMessage where
@@ -637,7 +716,7 @@ _CreateMessage = CreateMessage
     , tools = Nothing
     , tool_choice = Nothing
     , container = Nothing
-    , output_format = Nothing
+    , output_config = Nothing
     }
 
 -- | Text delta in streaming
