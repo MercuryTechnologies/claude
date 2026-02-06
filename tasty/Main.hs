@@ -339,6 +339,84 @@ main = do
                                 HUnit.assertFailure "user_id should be present and be an integer"
                     _ -> HUnit.assertFailure "Expected exactly one tool_use block"
 
+    let adaptiveThinkingTest =
+            HUnit.testCase "Create message - adaptive thinking" do
+                Messages.MessageResponse{ content } <-
+                    createMessage
+                        Messages._CreateMessage
+                            { Messages.model = "claude-opus-4-6"
+                            , Messages.messages =
+                                [ Messages.Message
+                                    { Messages.role = Messages.User
+                                    , Messages.content =
+                                        [ Messages.textContent "What is 2+2? Answer with just the number."
+                                        ]
+                                    , Messages.cache_control = Nothing
+                                    }
+                                ]
+                            , Messages.max_tokens = 4096
+                            , Messages.thinking = Just Messages.ThinkingAdaptive
+                            }
+
+                -- Should have at least one text block
+                let hasText = any isTextBlock (toList content)
+                HUnit.assertBool "Should have text content" hasText
+
+                -- Thinking blocks may or may not be present (model decides),
+                -- but verify we can parse them without errors
+                let thinkingBlocks =
+                        [ ()
+                        | Messages.ContentBlock_Thinking{} <- toList content
+                        ]
+                let redactedBlocks =
+                        [ ()
+                        | Messages.ContentBlock_Redacted_Thinking{} <- toList content
+                        ]
+                -- Just verify counts are non-negative (always true, but exercises the pattern matches)
+                HUnit.assertBool "Thinking block count should be non-negative"
+                    (length thinkingBlocks >= 0 && length redactedBlocks >= 0)
+
+    let adaptiveThinkingStreamingTest =
+            HUnit.testCase "Create message - adaptive thinking streaming" do
+                textAcc <- IORef.newIORef Text.empty
+                thinkingAcc <- IORef.newIORef Text.empty
+                done <- Concurrent.newEmptyMVar
+
+                let onEvent (Left _err) = Concurrent.putMVar done ()
+                    onEvent (Right ev) = case ev of
+                        Messages.Content_Block_Delta{ Messages.delta = d } ->
+                            case d of
+                                Messages.Delta_Text_Delta{ Messages.text = t } ->
+                                    IORef.modifyIORef' textAcc (<> t)
+                                Messages.Delta_Thinking_Delta{ Messages.thinking = t } ->
+                                    IORef.modifyIORef' thinkingAcc (<> t)
+                                _ -> pure ()
+                        Messages.Message_Stop ->
+                            Concurrent.putMVar done ()
+                        _ -> pure ()
+
+                createMessageStreamTyped
+                    Messages._CreateMessage
+                        { Messages.model = "claude-opus-4-6"
+                        , Messages.messages =
+                            [ Messages.Message
+                                { Messages.role = Messages.User
+                                , Messages.content =
+                                    [ Messages.textContent "What is 2+2? Answer with just the number."
+                                    ]
+                                , Messages.cache_control = Nothing
+                                }
+                            ]
+                        , Messages.max_tokens = 4096
+                        , Messages.thinking = Just Messages.ThinkingAdaptive
+                        }
+                    onEvent
+
+                _ <- Concurrent.takeMVar done
+                text <- IORef.readIORef textAcc
+                HUnit.assertBool "Expected non-empty streamed text"
+                    (not (Text.null text))
+
     -- Tool search test requires beta header
     let betaOptions = V1.defaultClientOptions
             { V1.apiKey = Text.pack key
@@ -557,11 +635,18 @@ main = do
             , tokenCountingTest
             , jsonOutputsTest
             , strictToolUseTest
+            , adaptiveThinkingTest
+            , adaptiveThinkingStreamingTest
             , toolSearchTest
             , programmaticToolCallingTest
             ]
 
     Tasty.defaultMain (Tasty.testGroup "Claude API Tests" tests)
+
+-- | Check if a content block is a text block
+isTextBlock :: Messages.ContentBlock -> Bool
+isTextBlock (Messages.ContentBlock_Text{}) = True
+isTextBlock _ = False
 
 -- | Check if a content block is a server_tool_use for code_execution
 isCodeExecutionServerToolUse :: Messages.ContentBlock -> Bool

@@ -27,6 +27,8 @@ main = do
                 case d of
                     Messages.Delta_Text_Delta{ Messages.text = t } ->
                         TIO.putStr t >> hFlush stdout
+                    Messages.Delta_Thinking_Delta{ Messages.thinking = t } ->
+                        TIO.putStr t >> hFlush stdout
                     _ -> pure ()
             -- Print newline when message is done
             Messages.Message_Stop -> putStrLn ""
