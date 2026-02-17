@@ -9,9 +9,9 @@ description: Upload Haskell packages to Hackage. Use when the user asks to publi
 
 When the user asks to publish or upload to Hackage:
 
-1. **Get the current version** from `claude.cabal`:
+1. **Identify the package cabal file and current version** (in this repo it is `claude.cabal`):
    ```bash
-   grep "^version:" claude.cabal
+   grep "^version:" *.cabal
    ```
 
 2. **Create the source distribution**:
@@ -26,9 +26,11 @@ When the user asks to publish or upload to Hackage:
 
 ## Pre-release checklist
 
-Before uploading, ensure:
-- Version in `claude.cabal` has been bumped
-- `CHANGELOG.md` has an entry for this version
+Before uploading, these are required release gates. Do not upload until both are true:
+- Version in the package cabal file has been bumped
+- `CHANGELOG.md` has an entry for that exact version
+
+Then verify the usual quality checks:
 - All tests pass (`cabal test`)
 - Code compiles without warnings (`cabal build`)
 
