@@ -1,3 +1,17 @@
+1.3.0:
+
+- Add request support for Claude Opus 4.6 routing and speed controls:
+  - `inference_geo` on `CreateMessage`
+  - `speed` on `CreateMessage` with `SpeedStandard` / `SpeedFast`
+- Add context management/compaction request types:
+  - `context_management` on `CreateMessage`
+  - `ContextManagementConfig`, `ContextManagementEdit`
+  - `CompactionTrigger` and `inputTokensTrigger` helper
+- Add live API tests for:
+  - `inference_geo`
+  - `context_management` compaction (`compact-2026-01-12`)
+  - `speed = fast` (`fast-mode-2026-02-01`, including waitlist-gated handling)
+
 1.2.0:
 
 - Add `Thinking` type with `ThinkingAdaptive` and `ThinkingEnabled` constructors
