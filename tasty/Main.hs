@@ -15,10 +15,12 @@ import qualified Claude.V1 as V1
 import qualified Claude.V1.Messages as Messages
 import qualified Claude.V1.Tool as Tool
 import qualified Control.Concurrent as Concurrent
+import qualified Control.Exception as Exception
 import qualified Data.Aeson as Aeson
 import qualified Data.Aeson.Types as Aeson.Types
 import           Data.Foldable (toList)
 import qualified Data.IORef as IORef
+import qualified Data.List as List
 import           Data.Maybe (mapMaybe)
 import qualified Data.Text as Text
 import qualified Data.Text.Encoding as Text
@@ -417,6 +419,106 @@ main = do
                 HUnit.assertBool "Expected non-empty streamed text"
                     (not (Text.null text))
 
+    let inferenceGeoLiveTest =
+            HUnit.testCase "Create message - inference_geo" do
+                Messages.MessageResponse{ content } <-
+                    createMessage
+                        Messages._CreateMessage
+                            { Messages.model = "claude-opus-4-6"
+                            , Messages.messages =
+                                [ Messages.Message
+                                    { Messages.role = Messages.User
+                                    , Messages.content =
+                                        [ Messages.textContent "Respond with exactly: geotest"
+                                        ]
+                                    , Messages.cache_control = Nothing
+                                    }
+                                ]
+                            , Messages.max_tokens = 64
+                            , Messages.inference_geo = Just "us"
+                            }
+
+                HUnit.assertBool "Response should have content"
+                    (not (null content))
+
+    let compactionOptions = V1.defaultClientOptions
+            { V1.apiKey = Text.pack key
+            , V1.anthropicBeta = Just "compact-2026-01-12"
+            }
+    let V1.Methods{ V1.createMessage = createMessageCompaction } =
+            V1.makeMethodsWith clientEnv compactionOptions
+
+    let compactionLiveTest =
+            HUnit.testCase "Create message - context_management compaction" do
+                Messages.MessageResponse{ content } <-
+                    createMessageCompaction
+                        Messages._CreateMessage
+                            { Messages.model = "claude-opus-4-6"
+                            , Messages.messages =
+                                [ Messages.Message
+                                    { Messages.role = Messages.User
+                                    , Messages.content =
+                                        [ Messages.textContent "Respond with exactly: compaction-ok"
+                                        ]
+                                    , Messages.cache_control = Nothing
+                                    }
+                                ]
+                            , Messages.max_tokens = 64
+                            , Messages.context_management = Just Messages.ContextManagementConfig
+                                { Messages.edits =
+                                    [ Messages.ContextManagementEdit_Compact_20260112
+                                        { Messages.instructions = Just "Preserve key facts only"
+                                        , Messages.pause_after_compaction = Nothing
+                                        , Messages.trigger = Just (Messages.inputTokensTrigger 150000)
+                                        }
+                                    ]
+                                }
+                            }
+
+                HUnit.assertBool "Response should have content"
+                    (not (null content))
+
+    let fastModeOptions = V1.defaultClientOptions
+            { V1.apiKey = Text.pack key
+            , V1.anthropicBeta = Just "fast-mode-2026-02-01"
+            }
+    let V1.Methods{ V1.createMessage = createMessageFast } =
+            V1.makeMethodsWith clientEnv fastModeOptions
+
+    let fastModeLiveTest =
+            HUnit.testCase "Create message - speed fast" do
+                result <-
+                    Exception.try
+                        (createMessageFast
+                            Messages._CreateMessage
+                                { Messages.model = "claude-opus-4-6"
+                                , Messages.messages =
+                                    [ Messages.Message
+                                        { Messages.role = Messages.User
+                                        , Messages.content =
+                                            [ Messages.textContent "Respond with exactly: fast-mode-ok"
+                                            ]
+                                        , Messages.cache_control = Nothing
+                                        }
+                                    ]
+                                , Messages.max_tokens = 64
+                                , Messages.speed = Just Messages.SpeedFast
+                                }
+                        )
+                        :: IO (Either Exception.SomeException Messages.MessageResponse)
+
+                case result of
+                    Right Messages.MessageResponse{ content } ->
+                        HUnit.assertBool "Response should have content" (not (null content))
+                    Left err -> do
+                        let errMsg = show err
+                        -- Fast mode is waitlist-gated. In orgs without fast capacity,
+                        -- Anthropic returns a 429 with fast token limits set to 0.
+                        if "rate limit of 0 input tokens per minute" `List.isInfixOf` errMsg
+                            || "anthropic-fast-input-tokens-limit\",\"0\"" `List.isInfixOf` errMsg
+                            then pure ()
+                            else HUnit.assertFailure $ "Unexpected fast mode failure: " <> errMsg
+
     -- Tool search test requires beta header
     let betaOptions = V1.defaultClientOptions
             { V1.apiKey = Text.pack key
@@ -637,6 +739,9 @@ main = do
             , strictToolUseTest
             , adaptiveThinkingTest
             , adaptiveThinkingStreamingTest
+            , inferenceGeoLiveTest
+            , compactionLiveTest
+            , fastModeLiveTest
             , toolSearchTest
             , programmaticToolCallingTest
             ]

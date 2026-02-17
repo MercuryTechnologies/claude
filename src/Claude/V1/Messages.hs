@@ -13,6 +13,13 @@ module Claude.V1.Messages
     , jsonSchemaConfig
     , jsonSchemaFormat
     , effortConfig
+      -- * Context management / compaction (beta)
+    , ContextManagementConfig(..)
+    , ContextManagementEdit(..)
+    , CompactionTrigger(..)
+    , inputTokensTrigger
+      -- * Request routing/speed
+    , Speed(..)
       -- * Thinking
     , Thinking(..)
       -- * Content types
@@ -690,6 +697,93 @@ jsonSchemaConfig s = OutputConfig
     , format = Just $ jsonSchemaFormat s
     }
 
+-- | Context management configuration (beta)
+--
+-- This allows you to control context edits applied by the API.
+-- Use 'ContextManagementEdit_Compact_20260112' to enable automatic compaction.
+data ContextManagementConfig = ContextManagementConfig
+    { edits :: Vector ContextManagementEdit
+    -- ^ Context edits to apply
+    } deriving stock (Eq, Generic, Show)
+
+instance FromJSON ContextManagementConfig where
+    parseJSON = genericParseJSON aesonOptions
+
+instance ToJSON ContextManagementConfig where
+    toJSON = genericToJSON aesonOptions
+
+-- | Context management edit (beta)
+data ContextManagementEdit
+    = ContextManagementEdit_Compact_20260112
+        { instructions :: Maybe Text
+        -- ^ Additional instructions for summarization.
+        , pause_after_compaction :: Maybe Bool
+        -- ^ Whether to pause and return a compaction block after compaction.
+        , trigger :: Maybe CompactionTrigger
+        -- ^ Compaction trigger configuration.
+        }
+    deriving stock (Eq, Generic, Show)
+
+contextManagementEditOptions :: Options
+contextManagementEditOptions = aesonOptions
+    { sumEncoding = TaggedObject{ tagFieldName = "type", contentsFieldName = "" }
+    , tagSingleConstructors = True
+    , constructorTagModifier = \s -> case s of
+        "ContextManagementEdit_Compact_20260112" -> "compact_20260112"
+        _ -> s
+    }
+
+instance FromJSON ContextManagementEdit where
+    parseJSON = genericParseJSON contextManagementEditOptions
+
+instance ToJSON ContextManagementEdit where
+    toJSON = genericToJSON contextManagementEditOptions
+
+-- | Compaction trigger for context management.
+--
+-- Currently, only @input_tokens@ triggers are supported.
+data CompactionTrigger = CompactionTrigger_Input_Tokens
+    { value :: Natural
+    -- ^ Trigger threshold in input tokens.
+    } deriving stock (Eq, Generic, Show)
+
+compactionTriggerOptions :: Options
+compactionTriggerOptions = aesonOptions
+    { sumEncoding = TaggedObject{ tagFieldName = "type", contentsFieldName = "" }
+    , tagSingleConstructors = True
+    , constructorTagModifier = \s -> case s of
+        "CompactionTrigger_Input_Tokens" -> "input_tokens"
+        _ -> s
+    }
+
+instance FromJSON CompactionTrigger where
+    parseJSON = genericParseJSON compactionTriggerOptions
+
+instance ToJSON CompactionTrigger where
+    toJSON = genericToJSON compactionTriggerOptions
+
+-- | Convenience constructor for an @input_tokens@ compaction trigger.
+inputTokensTrigger :: Natural -> CompactionTrigger
+inputTokensTrigger n = CompactionTrigger_Input_Tokens{ value = n }
+
+-- | Inference speed mode.
+--
+-- @"fast"@ is a research preview and may require an Anthropic beta header.
+data Speed
+    = SpeedStandard
+    | SpeedFast
+    deriving stock (Eq, Generic, Show)
+
+instance FromJSON Speed where
+    parseJSON = Aeson.withText "Speed" $ \t -> case t of
+        "standard" -> pure SpeedStandard
+        "fast" -> pure SpeedFast
+        _ -> fail $ "Unknown speed mode: " <> show t
+
+instance ToJSON Speed where
+    toJSON SpeedStandard = Aeson.String "standard"
+    toJSON SpeedFast = Aeson.String "fast"
+
 -- | Thinking configuration for extended thinking
 --
 -- * 'ThinkingAdaptive': Let Claude decide when and how much to think (Opus 4.6+).
@@ -752,6 +846,12 @@ data CreateMessage = CreateMessage
     , tools :: Maybe (Vector ToolDefinition)
     , tool_choice :: Maybe ToolChoice
     , container :: Maybe Text
+    , context_management :: Maybe ContextManagementConfig
+    -- ^ Context management configuration (beta), including automatic compaction edits.
+    , inference_geo :: Maybe Text
+    -- ^ Inference region routing hint, e.g. @"global"@ or @"us"@.
+    , speed :: Maybe Speed
+    -- ^ Inference speed mode. @SpeedFast@ may require a beta header.
     , output_config :: Maybe OutputConfig
     -- ^ Output configuration: effort level and/or structured output format.
     -- Use 'effortConfig', 'jsonSchemaConfig', or construct 'OutputConfig' directly.
@@ -782,6 +882,9 @@ _CreateMessage = CreateMessage
     , tools = Nothing
     , tool_choice = Nothing
     , container = Nothing
+    , context_management = Nothing
+    , inference_geo = Nothing
+    , speed = Nothing
     , output_config = Nothing
     , thinking = Nothing
     }
