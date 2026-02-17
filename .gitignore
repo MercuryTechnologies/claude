@@ -1,5 +1,6 @@
 .direnv
 dist-newstyle
+dist
 .envrc
 .DS_Store
 openapi.documented.yml
