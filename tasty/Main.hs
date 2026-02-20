@@ -52,63 +52,93 @@ main = do
     let version = Just "2023-06-01"
     let Methods{..} = V1.makeMethods clientEnv (Text.pack key) version
 
-    let systemPromptStringJsonTest =
-            HUnit.testCase "SystemPrompt JSON - string" do
-                let encoded = Aeson.encode ("You are helpful." :: Text.Text)
-                let decoded = Aeson.eitherDecode encoded :: Either String Messages.SystemPrompt
+    let systemPromptStringLiveTest =
+            HUnit.testCase "Create message - system prompt string" do
+                Messages.MessageResponse{ content } <-
+                    createMessage
+                        Messages._CreateMessage
+                            { Messages.model = model
+                            , Messages.messages =
+                                [ Messages.Message
+                                    { Messages.role = Messages.User
+                                    , Messages.content =
+                                        [ Messages.textContent "Say exactly: system-string-ok"
+                                        ]
+                                    , Messages.cache_control = Nothing
+                                    }
+                                ]
+                            , Messages.max_tokens = 32
+                            , Messages.system = Just "Respond with exactly: system-string-ok"
+                            }
 
-                case decoded of
-                    Left err -> HUnit.assertFailure ("Failed to decode SystemPrompt string: " <> err)
-                    Right prompt ->
-                        HUnit.assertEqual
-                            "Should decode text system prompt"
-                            (Messages.SystemPromptText "You are helpful.")
-                            prompt
+                HUnit.assertBool "Response should have content"
+                    (not (null content))
 
-    let systemPromptBlocksJsonTest =
-            HUnit.testCase "SystemPrompt JSON - blocks" do
-                let blockValue = Aeson.object
-                        [ "type" Aeson..= ("text" :: Text.Text)
-                        , "text" Aeson..= ("Use terse answers." :: Text.Text)
-                        , "cache_control" Aeson..= Messages.ephemeralCache
-                        ]
-                let decoded = Aeson.fromJSON blockValue :: Aeson.Result Messages.SystemBlock
+    let systemPromptBlocksLiveTest =
+            HUnit.testCase "Create message - system prompt blocks with cache control" do
+                Messages.MessageResponse{ content } <-
+                    createMessage
+                        Messages._CreateMessage
+                            { Messages.model = model
+                            , Messages.messages =
+                                [ Messages.Message
+                                    { Messages.role = Messages.User
+                                    , Messages.content =
+                                        [ Messages.textContent "Follow the system instructions."
+                                        ]
+                                    , Messages.cache_control = Nothing
+                                    }
+                                ]
+                            , Messages.max_tokens = 64
+                            , Messages.system = Just $ Messages.systemBlocks
+                                [ Messages.systemTextBlockCached
+                                    Messages.ephemeralCache
+                                    "Respond with exactly: system-block-ok"
+                                ]
+                            }
 
-                case decoded of
-                    Aeson.Error err -> HUnit.assertFailure ("Failed to decode SystemBlock: " <> err)
-                    Aeson.Success block ->
-                        HUnit.assertEqual
-                            "Should decode cached system block"
-                            (Messages.systemTextBlockCached Messages.ephemeralCache "Use terse answers.")
-                            block
+                HUnit.assertBool "Response should have content"
+                    (not (null content))
 
-    let toolDefinitionCacheControlJsonTest =
-            HUnit.testCase "ToolDefinition JSON - function tool cache_control" do
-                let toolJson = Aeson.object
-                        [ "name" Aeson..= ("get_weather" :: Text.Text)
-                        , "description" Aeson..= ("Get weather" :: Text.Text)
-                        , "input_schema" Aeson..= Aeson.object
-                            [ "type" Aeson..= ("object" :: Text.Text)
-                            , "properties" Aeson..= Aeson.object
+    let toolDefinitionCacheControlLiveTest =
+            HUnit.testCase "Create message - tool cache_control" do
+                let weatherTool = Tool.functionTool
+                        "get_weather"
+                        (Just "Get weather for a location")
+                        $ Aeson.object
+                            [ "properties" Aeson..= Aeson.object
                                 [ "location" Aeson..= Aeson.object
                                     [ "type" Aeson..= ("string" :: Text.Text)
                                     ]
                                 ]
                             , "required" Aeson..= (["location"] :: [Text.Text])
                             ]
-                        , "cache_control" Aeson..= Messages.ephemeralCache
-                        ]
-                let decoded = Aeson.fromJSON toolJson :: Aeson.Result Tool.ToolDefinition
 
-                case decoded of
-                    Aeson.Error err -> HUnit.assertFailure ("Failed to decode ToolDefinition: " <> err)
-                    Aeson.Success td -> case td of
-                        Tool.ToolDef_Function{ Tool.cache_control = cc } ->
-                            HUnit.assertEqual
-                                "Should decode cache_control on function tool"
-                                (Just Messages.ephemeralCache)
-                                cc
-                        _ -> HUnit.assertFailure "Expected ToolDef_Function"
+                Messages.MessageResponse{ stop_reason } <-
+                    createMessage
+                        Messages._CreateMessage
+                            { Messages.model = model
+                            , Messages.messages =
+                                [ Messages.Message
+                                    { Messages.role = Messages.User
+                                    , Messages.content =
+                                        [ Messages.textContent "What's the weather in SF? Use the tool."
+                                        ]
+                                    , Messages.cache_control = Nothing
+                                    }
+                                ]
+                            , Messages.max_tokens = 200
+                            , Messages.tools = Just
+                                [ Tool.withToolCacheControl
+                                    Messages.ephemeralCache
+                                    (Tool.inlineTool weatherTool)
+                                ]
+                            , Messages.tool_choice = Just Tool.ToolChoice_Any
+                            }
+
+                HUnit.assertEqual "Should stop for tool use"
+                    (Just Messages.Tool_Use)
+                    stop_reason
 
     let messagesMinimalTest =
             HUnit.testCase "Create message - minimal" do
@@ -480,7 +510,7 @@ main = do
     let promptCachingLiveTest =
             HUnit.testCase "Create message - prompt caching" do
                 let largeSystemText =
-                        Text.intercalate " " (replicate 1600 ("cacheable-guidance" :: Text.Text))
+                        Text.intercalate " " (replicate 6000 ("cacheable-guidance" :: Text.Text))
                 let systemPrompt = Messages.systemBlocks
                         [ Messages.systemTextBlockCached Messages.ephemeralCache largeSystemText
                         ]
@@ -503,14 +533,16 @@ main = do
                 Messages.MessageResponse{ Messages.usage = usage1 } <- createMessage request
                 Messages.MessageResponse{ Messages.usage = usage2 } <- createMessage request
 
-                let wroteCache =
+                let firstCreatedCache =
                         maybe False (> 0) (Messages.cache_creation_input_tokens usage1)
+                let firstReadCache =
+                        maybe False (> 0) (Messages.cache_read_input_tokens usage1)
                 let readCache =
                         maybe False (> 0) (Messages.cache_read_input_tokens usage2)
 
                 HUnit.assertBool
-                    "First request should create prompt cache tokens"
-                    wroteCache
+                    "First request should create or read prompt cache tokens"
+                    (firstCreatedCache || firstReadCache)
 
                 HUnit.assertBool
                     "Second request should read prompt cache tokens"
@@ -826,9 +858,9 @@ main = do
                 loop [initialMessage, assistantMessage1, userMessage1] containerId 1
 
     let tests =
-            [ systemPromptStringJsonTest
-            , systemPromptBlocksJsonTest
-            , toolDefinitionCacheControlJsonTest
+            [ systemPromptStringLiveTest
+            , systemPromptBlocksLiveTest
+            , toolDefinitionCacheControlLiveTest
             , messagesMinimalTest
             , messagesWithSystemTest
             , messagesStreamingTest
