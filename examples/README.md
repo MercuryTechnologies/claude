@@ -18,15 +18,13 @@ Server-side [tool search](https://platform.claude.com/docs/en/agents-and-tools/t
 
 The example defines several tools (weather, stock price, currency conversion, calculator, web search) with `defer_loading: true`, then uses `tool_search_tool_regex` to discover relevant tools at runtime.
 
-Requires beta header: `advanced-tool-use-2025-11-20`
-
 ## claude-programmatic-tool-calling-example
 
 [Programmatic Tool Calling (PTC)](https://platform.claude.com/docs/en/agents-and-tools/tool-use/programmatic-tool-calling) allows Claude to write code that calls tools within a code execution container, rather than requiring round trips through the model for each tool invocation. This reduces latency for multi-tool workflows and decreases token consumption by allowing Claude to filter or process data before it reaches the context window.
 
 The example defines a `query_database` tool with `allowed_callers = ["code_execution_20250825"]`. Claude then writes Python code that queries multiple database regions in a loop and aggregates the results—all in a single code execution, rather than multiple model round trips.
 
-Requires beta header: `advanced-tool-use-2025-11-20` and the `code_execution_20250825` tool.
+Requires the `code_execution_20250825` tool.
 
 ## claude-vision-example
 

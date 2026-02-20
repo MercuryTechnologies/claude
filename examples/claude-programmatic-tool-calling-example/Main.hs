@@ -11,7 +11,6 @@
 -- aggregates the results.
 --
 -- Requirements:
--- * anthropic-beta: advanced-tool-use-2025-11-20 header
 -- * code_execution_20250825 tool in the tools array
 -- * Tools must have allowed_callers = ["code_execution_20250825"]
 module Main where
@@ -60,12 +59,9 @@ main = do
     key <- Text.pack <$> Environment.getEnv "ANTHROPIC_KEY"
     env <- V1.getClientEnv "https://api.anthropic.com"
 
-    -- Create methods with beta header for PTC
-    let options = V1.defaultClientOptions
-            { V1.apiKey = key
-            , V1.anthropicBeta = Just "advanced-tool-use-2025-11-20"
-            }
-    let V1.Methods{ V1.createMessage } = V1.makeMethodsWith env options
+    -- PTC is GA, no beta header needed
+    let version = Just "2023-06-01"
+    let V1.Methods{ V1.createMessage } = V1.makeMethods env key version
 
     -- Tools: code execution + query_database with allowed_callers
     let tools =

@@ -379,7 +379,6 @@ deferredTool t = ToolDef_Function
 
 -- | Code execution tool for programmatic tool calling (PTC)
 --
--- Requires @anthropic-beta: advanced-tool-use-2025-11-20@ header.
 -- When included in the tools array, Claude can write and execute code
 -- to call other tools programmatically.
 codeExecutionTool :: ToolDefinition
@@ -416,8 +415,6 @@ withToolCacheControl cc (ToolDef_CodeExecutionTool n t _) =
     ToolDef_CodeExecutionTool n t (Just cc)
 
 -- | Tool search using regex matching
---
--- Requires @anthropic-beta: advanced-tool-use-2025-11-20@ header.
 toolSearchRegex :: ToolDefinition
 toolSearchRegex = ToolDef_SearchTool
     { tool_search_tool = ToolSearchTool
@@ -428,8 +425,6 @@ toolSearchRegex = ToolDef_SearchTool
     }
 
 -- | Tool search using BM25 matching
---
--- Requires @anthropic-beta: advanced-tool-use-2025-11-20@ header.
 toolSearchBm25 :: ToolDefinition
 toolSearchBm25 = ToolDef_SearchTool
     { tool_search_tool = ToolSearchTool
