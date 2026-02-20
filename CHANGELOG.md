@@ -1,3 +1,22 @@
+1.4.0:
+
+- Expand prompt caching support:
+  - Add top-level `cache_control` on `CreateMessage` (automatic caching).
+  - Add `ttl` support on `CacheControl` via `CacheTTL`.
+  - Add cache-control helpers:
+    - `ephemeralCacheWithTTL`
+    - `ephemeralCacheWithTTLSeconds`
+    - `ephemeralCacheWithTTLDuration`
+- Add structured system prompt support:
+  - `SystemPrompt` (string or blocks)
+  - `SystemBlock` with per-block `cache_control`
+  - `systemText`, `systemBlocks`, `systemTextBlock`, `systemTextBlockCached`
+  - `CreateMessage.system` and `CountTokensRequest.system` now use `Maybe SystemPrompt`
+  - breaking: `system = Just someTextVar` (where `someTextVar :: Text`) now needs `system = Just (systemText someTextVar)`
+- Add tool-level cache control support:
+  - `ToolDefinition` variants now accept optional `cache_control`
+  - new helper `withToolCacheControl`
+
 1.3.0:
 
 - Add request support for Claude Opus 4.6 routing and speed controls:

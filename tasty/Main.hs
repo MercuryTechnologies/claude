@@ -52,6 +52,64 @@ main = do
     let version = Just "2023-06-01"
     let Methods{..} = V1.makeMethods clientEnv (Text.pack key) version
 
+    let systemPromptStringJsonTest =
+            HUnit.testCase "SystemPrompt JSON - string" do
+                let encoded = Aeson.encode ("You are helpful." :: Text.Text)
+                let decoded = Aeson.eitherDecode encoded :: Either String Messages.SystemPrompt
+
+                case decoded of
+                    Left err -> HUnit.assertFailure ("Failed to decode SystemPrompt string: " <> err)
+                    Right prompt ->
+                        HUnit.assertEqual
+                            "Should decode text system prompt"
+                            (Messages.SystemPromptText "You are helpful.")
+                            prompt
+
+    let systemPromptBlocksJsonTest =
+            HUnit.testCase "SystemPrompt JSON - blocks" do
+                let blockValue = Aeson.object
+                        [ "type" Aeson..= ("text" :: Text.Text)
+                        , "text" Aeson..= ("Use terse answers." :: Text.Text)
+                        , "cache_control" Aeson..= Messages.ephemeralCache
+                        ]
+                let decoded = Aeson.fromJSON blockValue :: Aeson.Result Messages.SystemBlock
+
+                case decoded of
+                    Aeson.Error err -> HUnit.assertFailure ("Failed to decode SystemBlock: " <> err)
+                    Aeson.Success block ->
+                        HUnit.assertEqual
+                            "Should decode cached system block"
+                            (Messages.systemTextBlockCached Messages.ephemeralCache "Use terse answers.")
+                            block
+
+    let toolDefinitionCacheControlJsonTest =
+            HUnit.testCase "ToolDefinition JSON - function tool cache_control" do
+                let toolJson = Aeson.object
+                        [ "name" Aeson..= ("get_weather" :: Text.Text)
+                        , "description" Aeson..= ("Get weather" :: Text.Text)
+                        , "input_schema" Aeson..= Aeson.object
+                            [ "type" Aeson..= ("object" :: Text.Text)
+                            , "properties" Aeson..= Aeson.object
+                                [ "location" Aeson..= Aeson.object
+                                    [ "type" Aeson..= ("string" :: Text.Text)
+                                    ]
+                                ]
+                            , "required" Aeson..= (["location"] :: [Text.Text])
+                            ]
+                        , "cache_control" Aeson..= Messages.ephemeralCache
+                        ]
+                let decoded = Aeson.fromJSON toolJson :: Aeson.Result Tool.ToolDefinition
+
+                case decoded of
+                    Aeson.Error err -> HUnit.assertFailure ("Failed to decode ToolDefinition: " <> err)
+                    Aeson.Success td -> case td of
+                        Tool.ToolDef_Function{ Tool.cache_control = cc } ->
+                            HUnit.assertEqual
+                                "Should decode cache_control on function tool"
+                                (Just Messages.ephemeralCache)
+                                cc
+                        _ -> HUnit.assertFailure "Expected ToolDef_Function"
+
     let messagesMinimalTest =
             HUnit.testCase "Create message - minimal" do
                 Messages.MessageResponse{ content } <-
@@ -419,6 +477,45 @@ main = do
                 HUnit.assertBool "Expected non-empty streamed text"
                     (not (Text.null text))
 
+    let promptCachingLiveTest =
+            HUnit.testCase "Create message - prompt caching" do
+                let largeSystemText =
+                        Text.intercalate " " (replicate 1600 ("cacheable-guidance" :: Text.Text))
+                let systemPrompt = Messages.systemBlocks
+                        [ Messages.systemTextBlockCached Messages.ephemeralCache largeSystemText
+                        ]
+                let request = Messages._CreateMessage
+                        { Messages.model = model
+                        , Messages.messages =
+                            [ Messages.Message
+                                { Messages.role = Messages.User
+                                , Messages.content =
+                                    [ Messages.textContent "Respond with exactly: cachetest"
+                                    ]
+                                , Messages.cache_control = Nothing
+                                }
+                            ]
+                        , Messages.max_tokens = 64
+                        , Messages.system = Just systemPrompt
+                        , Messages.cache_control = Just Messages.ephemeralCache
+                        }
+
+                Messages.MessageResponse{ Messages.usage = usage1 } <- createMessage request
+                Messages.MessageResponse{ Messages.usage = usage2 } <- createMessage request
+
+                let wroteCache =
+                        maybe False (> 0) (Messages.cache_creation_input_tokens usage1)
+                let readCache =
+                        maybe False (> 0) (Messages.cache_read_input_tokens usage2)
+
+                HUnit.assertBool
+                    "First request should create prompt cache tokens"
+                    wroteCache
+
+                HUnit.assertBool
+                    "Second request should read prompt cache tokens"
+                    readCache
+
     let inferenceGeoLiveTest =
             HUnit.testCase "Create message - inference_geo" do
                 Messages.MessageResponse{ content } <-
@@ -729,7 +826,10 @@ main = do
                 loop [initialMessage, assistantMessage1, userMessage1] containerId 1
 
     let tests =
-            [ messagesMinimalTest
+            [ systemPromptStringJsonTest
+            , systemPromptBlocksJsonTest
+            , toolDefinitionCacheControlJsonTest
+            , messagesMinimalTest
             , messagesWithSystemTest
             , messagesStreamingTest
             , messagesConversationTest
@@ -739,6 +839,7 @@ main = do
             , strictToolUseTest
             , adaptiveThinkingTest
             , adaptiveThinkingStreamingTest
+            , promptCachingLiveTest
             , inferenceGeoLiveTest
             , compactionLiveTest
             , fastModeLiveTest
