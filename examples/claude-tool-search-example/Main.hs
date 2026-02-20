@@ -8,7 +8,7 @@
 -- This example shows how to use the server-side tool search feature,
 -- which allows Claude to efficiently search through large numbers of tools.
 --
--- Tool search requires the beta header: anthropic-beta: advanced-tool-use-2025-11-20
+-- Tool search is generally available (no beta header needed).
 module Main where
 
 import Data.Foldable (toList)
@@ -108,12 +108,9 @@ main = do
     key <- Text.pack <$> Environment.getEnv "ANTHROPIC_KEY"
     env <- V1.getClientEnv "https://api.anthropic.com"
 
-    -- Use makeMethodsWith to include the beta header for tool search
-    let options = V1.defaultClientOptions
-            { V1.apiKey = key
-            , V1.anthropicBeta = Just "advanced-tool-use-2025-11-20"
-            }
-    let V1.Methods{ V1.createMessage } = V1.makeMethodsWith env options
+    -- Tool search is GA, no beta header needed
+    let version = Just "2023-06-01"
+    let V1.Methods{ V1.createMessage } = V1.makeMethods env key version
 
     -- Set up tools with tool search enabled
     -- The tool search tool is NOT deferred, while other tools are deferred

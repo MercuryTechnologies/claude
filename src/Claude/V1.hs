@@ -112,7 +112,7 @@ data ClientOptions = ClientOptions
     , anthropicVersion :: Maybe Text
     -- ^ Anthropic-Version header (e.g., "2023-06-01")
     , anthropicBeta :: Maybe Text
-    -- ^ Anthropic-Beta header for beta features (e.g., "advanced-tool-use-2025-11-20")
+    -- ^ Anthropic-Beta header for beta features
     } deriving stock (Show)
 
 -- | Default client options (requires setting apiKey)
@@ -143,12 +143,12 @@ makeMethods clientEnv key version =
 
 -- | Get a record of API methods with full configuration options
 --
--- Use this when you need to pass beta headers (e.g., for tool search):
+-- Use this when you need to pass beta headers or other options:
 --
 -- @
 -- let options = defaultClientOptions
 --         { apiKey = key
---         , anthropicBeta = Just "advanced-tool-use-2025-11-20"
+--         , anthropicBeta = Just "some-beta-feature"
 --         }
 -- let Methods{ createMessage } = makeMethodsWith clientEnv options
 -- @
