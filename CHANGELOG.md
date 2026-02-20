@@ -1,3 +1,9 @@
+1.3.1:
+
+- Remove `advanced-tool-use-2025-11-20` beta header requirement — tool search,
+  programmatic tool calling, and code execution are now generally available
+- Fix flaky PTC test by handling non-deterministic model behavior
+
 1.3.0:
 
 - Add request support for Claude Opus 4.6 routing and speed controls:
