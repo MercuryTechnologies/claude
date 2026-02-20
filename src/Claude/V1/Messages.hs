@@ -61,6 +61,7 @@ module Claude.V1.Messages
     , codeExecutionTool
     , allowedCallersCodeExecution
     , allowCallers
+    , withToolCacheControl
     , toolChoiceAuto
     , toolChoiceAny
     , toolChoiceTool
@@ -76,7 +77,18 @@ module Claude.V1.Messages
     , TokenCount(..)
       -- * Prompt caching
     , CacheControl(..)
+    , CacheTTL(..)
     , ephemeralCache
+    , ephemeralCacheWithTTL
+    , ephemeralCacheWithTTLSeconds
+    , ephemeralCacheWithTTLDuration
+      -- * System prompt helpers
+    , SystemPrompt(..)
+    , SystemBlock(..)
+    , systemText
+    , systemBlocks
+    , systemTextBlock
+    , systemTextBlockCached
       -- * Convenience constructors
     , textContent
     , imageContent
@@ -87,6 +99,14 @@ module Claude.V1.Messages
     ) where
 
 import           Claude.Prelude
+import           Claude.V1.CacheControl
+    ( CacheControl(..)
+    , CacheTTL(..)
+    , ephemeralCache
+    , ephemeralCacheWithTTL
+    , ephemeralCacheWithTTLDuration
+    , ephemeralCacheWithTTLSeconds
+    )
 import           Claude.V1.Tool
     ( InputSchema(..)
     , Tool(..)
@@ -104,6 +124,7 @@ import           Claude.V1.Tool
     , toolChoiceAny
     , toolChoiceAuto
     , toolChoiceTool
+    , withToolCacheControl
     , toolSearchBm25
     , toolSearchRegex
     )
@@ -134,20 +155,63 @@ instance FromJSON ImageSource where
 instance ToJSON ImageSource where
     toJSON = genericToJSON aesonOptions
 
--- | Cache control for prompt caching
-data CacheControl = CacheControl
-    { type_ :: Text  -- ^ Currently only "ephemeral" is supported
-    } deriving stock (Generic, Show)
+-- | A system prompt block.
+--
+-- Use @type_ = \"text\"@ for text system blocks.
+data SystemBlock = SystemBlock
+    { type_ :: Text
+    , text :: Text
+    , cache_control :: Maybe CacheControl
+    } deriving stock (Eq, Generic, Show)
 
-instance FromJSON CacheControl where
+instance FromJSON SystemBlock where
     parseJSON = genericParseJSON aesonOptions
 
-instance ToJSON CacheControl where
+instance ToJSON SystemBlock where
     toJSON = genericToJSON aesonOptions
 
--- | Convenience constructor for ephemeral cache control
-ephemeralCache :: CacheControl
-ephemeralCache = CacheControl{ type_ = "ephemeral" }
+-- | System prompt, either a plain string or an array of system blocks.
+data SystemPrompt
+    = SystemPromptText Text
+    | SystemPromptBlocks (Vector SystemBlock)
+    deriving stock (Eq, Show)
+
+instance IsString SystemPrompt where
+    fromString = SystemPromptText . fromString
+
+instance FromJSON SystemPrompt where
+    parseJSON (Aeson.String t) = pure (SystemPromptText t)
+    parseJSON (Aeson.Array arr) =
+        SystemPromptBlocks <$> traverse Aeson.parseJSON arr
+    parseJSON _ = fail "SystemPrompt must be a string or array of system blocks"
+
+instance ToJSON SystemPrompt where
+    toJSON (SystemPromptText t) = Aeson.String t
+    toJSON (SystemPromptBlocks blocks) = Aeson.toJSON blocks
+
+-- | Create a plain-text system prompt.
+systemText :: Text -> SystemPrompt
+systemText = SystemPromptText
+
+-- | Create a block-based system prompt.
+systemBlocks :: Vector SystemBlock -> SystemPrompt
+systemBlocks = SystemPromptBlocks
+
+-- | Create a text system block without cache control.
+systemTextBlock :: Text -> SystemBlock
+systemTextBlock t = SystemBlock
+    { type_ = "text"
+    , text = t
+    , cache_control = Nothing
+    }
+
+-- | Create a text system block with cache control.
+systemTextBlockCached :: CacheControl -> Text -> SystemBlock
+systemTextBlockCached cc t = SystemBlock
+    { type_ = "text"
+    , text = t
+    , cache_control = Just cc
+    }
 
 -- | Text content block
 data TextContent = TextContent
@@ -836,7 +900,10 @@ data CreateMessage = CreateMessage
     { model :: Text
     , messages :: Vector Message
     , max_tokens :: Natural
-    , system :: Maybe Text
+    , system :: Maybe SystemPrompt
+    -- ^ System prompt, either plain text or structured system blocks.
+    , cache_control :: Maybe CacheControl
+    -- ^ Top-level automatic prompt caching configuration.
     , temperature :: Maybe Double
     , top_p :: Maybe Double
     , top_k :: Maybe Natural
@@ -873,6 +940,7 @@ _CreateMessage = CreateMessage
     , messages = mempty
     , max_tokens = 1024
     , system = Nothing
+    , cache_control = Nothing
     , temperature = Nothing
     , top_p = Nothing
     , top_k = Nothing
@@ -1014,7 +1082,7 @@ instance ToJSON MessageStreamEvent where
 data CountTokensRequest = CountTokensRequest
     { model :: Text
     , messages :: Vector Message
-    , system :: Maybe Text
+    , system :: Maybe SystemPrompt
     , tools :: Maybe (Vector ToolDefinition)
     , tool_choice :: Maybe ToolChoice
     } deriving stock (Generic, Show)

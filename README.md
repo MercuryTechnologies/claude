@@ -34,6 +34,28 @@ main = do
     traverse_ display content
 ```
 
+## Prompt caching
+
+The bindings support prompt caching at multiple levels:
+
+- top-level request (`CreateMessage.cache_control`)
+- system blocks (`SystemBlock.cache_control`)
+- message/content blocks (`Message.cache_control`, text/image content block cache control)
+- tool definitions (`withToolCacheControl`)
+
+```haskell
+MessageResponse{ usage } <- createMessage _CreateMessage
+    { model = "claude-sonnet-4-5-20250929"
+    , max_tokens = 1024
+    , cache_control = Just (ephemeralCacheWithTTLDuration "1h")
+    , system = Just $ systemBlocks
+        [ systemTextBlockCached ephemeralCache "You are a coding assistant."
+        ]
+    , messages =
+        [ Message{ role = User, content = [ textContent "Summarize this file." ] } ]
+    }
+```
+
 ## Setup
 
 ### Using Nix with Flakes (Recommended)

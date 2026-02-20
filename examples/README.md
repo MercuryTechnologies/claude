@@ -40,6 +40,15 @@ The example demonstrates two features:
 
 2. **Strict tool use** (`strict: true`): Validate tool parameters using `strictFunctionTool` to guarantee schema-compliant tool inputs.
 
+## Prompt caching support
+
+Prompt caching can be enabled directly from existing examples by setting `cache_control` on:
+
+- top-level `CreateMessage`
+- system blocks (`SystemPrompt` / `SystemBlock`)
+- messages/content blocks
+- tool definitions via `withToolCacheControl`
+
 ---
 
 Run any example with:

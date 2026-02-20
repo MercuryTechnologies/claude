@@ -31,6 +31,13 @@ module Claude.V1.Tool
     , ToolDefinition(..)
     , ToolSearchTool(..)
     , ToolSearchToolType(..)
+      -- * Prompt caching
+    , CacheControl(..)
+    , CacheTTL(..)
+    , ephemeralCache
+    , ephemeralCacheWithTTL
+    , ephemeralCacheWithTTLSeconds
+    , ephemeralCacheWithTTLDuration
       -- * Tool constructors
     , functionTool
     , strictFunctionTool
@@ -44,6 +51,7 @@ module Claude.V1.Tool
     , codeExecutionTool
     , allowedCallersCodeExecution
     , allowCallers
+    , withToolCacheControl
       -- * ToolChoice constructors
     , toolChoiceAuto
     , toolChoiceAny
@@ -56,6 +64,14 @@ module Claude.V1.Tool
     ) where
 
 import Claude.Prelude
+import Claude.V1.CacheControl
+    ( CacheControl(..)
+    , CacheTTL(..)
+    , ephemeralCache
+    , ephemeralCacheWithTTL
+    , ephemeralCacheWithTTLDuration
+    , ephemeralCacheWithTTLSeconds
+    )
 
 import qualified Data.Aeson as Aeson
 import qualified Data.Aeson.Key as Key
@@ -265,11 +281,16 @@ data ToolDefinition
         { tool :: Tool
         , defer_loading :: Maybe Bool
         , allowed_callers :: Maybe (Vector Text)
+        , cache_control :: Maybe CacheControl
         }
-    | ToolDef_SearchTool ToolSearchTool
+    | ToolDef_SearchTool
+        { tool_search_tool :: ToolSearchTool
+        , cache_control :: Maybe CacheControl
+        }
     | ToolDef_CodeExecutionTool
         { name :: Text
         , type_ :: Text
+        , cache_control :: Maybe CacheControl
         }
     deriving stock (Eq, Show)
 
@@ -277,19 +298,32 @@ instance FromJSON ToolDefinition where
     parseJSON = Aeson.withObject "ToolDefinition" $ \o -> do
         -- Check if this is a tool search tool or code execution tool by looking for "type" field
         mType <- o Aeson..:? "type"
+        cache_control <- o Aeson..:? "cache_control"
         case mType of
             Just t | isToolSearchType t -> do
                 searchTool <- Aeson.parseJSON (Aeson.Object o)
-                pure (ToolDef_SearchTool searchTool)
+                pure ToolDef_SearchTool
+                    { tool_search_tool = searchTool
+                    , cache_control = cache_control
+                    }
             Just t | isCodeExecutionType t -> do
                 name <- o Aeson..: "name"
-                pure ToolDef_CodeExecutionTool{ name, type_ = t }
+                pure ToolDef_CodeExecutionTool
+                    { name
+                    , type_ = t
+                    , cache_control = cache_control
+                    }
             _ -> do
                 -- Parse as function tool
                 tool <- Aeson.parseJSON (Aeson.Object o)
                 defer_loading <- o Aeson..:? "defer_loading"
                 allowed_callers <- o Aeson..:? "allowed_callers"
-                pure ToolDef_Function{ tool, defer_loading, allowed_callers }
+                pure ToolDef_Function
+                    { tool
+                    , defer_loading
+                    , allowed_callers
+                    , cache_control = cache_control
+                    }
       where
         isToolSearchType :: Text -> Bool
         isToolSearchType t = t == "tool_search_tool_regex_20251119"
@@ -298,7 +332,7 @@ instance FromJSON ToolDefinition where
         isCodeExecutionType t = t == "code_execution_20250825"
 
 instance ToJSON ToolDefinition where
-    toJSON (ToolDef_Function Tool{ name, description, input_schema, strict } defer_loading allowed_callers) =
+    toJSON (ToolDef_Function Tool{ name, description, input_schema, strict } defer_loading allowed_callers cache_control) =
         Aeson.Object (baseMap <> optionalFields)
       where
         baseObj = Aeson.object $
@@ -311,20 +345,37 @@ instance ToJSON ToolDefinition where
         optionalFields = KeyMap.fromList $
             maybe [] (\dl -> [("defer_loading", Aeson.toJSON dl)]) defer_loading <>
             maybe [] (\ac -> [("allowed_callers", Aeson.toJSON ac)]) allowed_callers <>
-            maybe [] (\s -> [("strict", Aeson.toJSON s)]) strict
-    toJSON (ToolDef_SearchTool searchTool) = Aeson.toJSON searchTool
-    toJSON (ToolDef_CodeExecutionTool name type_) = Aeson.object
+            maybe [] (\s -> [("strict", Aeson.toJSON s)]) strict <>
+            maybe [] (\cc -> [("cache_control", Aeson.toJSON cc)]) cache_control
+    toJSON (ToolDef_SearchTool searchTool cache_control) =
+        case Aeson.toJSON searchTool of
+            Aeson.Object baseMap ->
+                Aeson.Object $
+                    baseMap <> KeyMap.fromList
+                        (maybe [] (\cc -> [("cache_control", Aeson.toJSON cc)]) cache_control)
+            other -> other
+    toJSON (ToolDef_CodeExecutionTool name type_ cache_control) = Aeson.object $
         [ "name" Aeson..= name
         , "type" Aeson..= type_
-        ]
+        ] <> maybe [] (\cc -> ["cache_control" Aeson..= cc]) cache_control
 
 -- | Wrap a tool for inline (non-deferred) loading
 inlineTool :: Tool -> ToolDefinition
-inlineTool t = ToolDef_Function{ tool = t, defer_loading = Nothing, allowed_callers = Nothing }
+inlineTool t = ToolDef_Function
+    { tool = t
+    , defer_loading = Nothing
+    , allowed_callers = Nothing
+    , cache_control = Nothing
+    }
 
 -- | Wrap a tool for deferred loading (used with tool search)
 deferredTool :: Tool -> ToolDefinition
-deferredTool t = ToolDef_Function{ tool = t, defer_loading = Just True, allowed_callers = Nothing }
+deferredTool t = ToolDef_Function
+    { tool = t
+    , defer_loading = Just True
+    , allowed_callers = Nothing
+    , cache_control = Nothing
+    }
 
 -- | Code execution tool for programmatic tool calling (PTC)
 --
@@ -334,6 +385,7 @@ codeExecutionTool :: ToolDefinition
 codeExecutionTool = ToolDef_CodeExecutionTool
     { name = "code_execution"
     , type_ = "code_execution_20250825"
+    , cache_control = Nothing
     }
 
 -- | Allowed callers for code execution (PTC)
@@ -352,21 +404,34 @@ allowedCallersCodeExecution = ["code_execution_20250825"]
 -- allowCallers allowedCallersCodeExecution (inlineTool myTool)
 -- @
 allowCallers :: Vector Text -> ToolDefinition -> ToolDefinition
-allowCallers callers (ToolDef_Function t dl _) = ToolDef_Function t dl (Just callers)
+allowCallers callers (ToolDef_Function t dl _ cc) = ToolDef_Function t dl (Just callers) cc
 allowCallers _ td = td
+
+-- | Set cache_control on a tool definition.
+withToolCacheControl :: CacheControl -> ToolDefinition -> ToolDefinition
+withToolCacheControl cc (ToolDef_Function t dl ac _) = ToolDef_Function t dl ac (Just cc)
+withToolCacheControl cc (ToolDef_SearchTool t _) = ToolDef_SearchTool t (Just cc)
+withToolCacheControl cc (ToolDef_CodeExecutionTool n t _) =
+    ToolDef_CodeExecutionTool n t (Just cc)
 
 -- | Tool search using regex matching
 toolSearchRegex :: ToolDefinition
-toolSearchRegex = ToolDef_SearchTool ToolSearchTool
-    { name = "tool_search_tool_regex"
-    , type_ = ToolSearchTool_Regex_20251119
+toolSearchRegex = ToolDef_SearchTool
+    { tool_search_tool = ToolSearchTool
+        { name = "tool_search_tool_regex"
+        , type_ = ToolSearchTool_Regex_20251119
+        }
+    , cache_control = Nothing
     }
 
 -- | Tool search using BM25 matching
 toolSearchBm25 :: ToolDefinition
-toolSearchBm25 = ToolDef_SearchTool ToolSearchTool
-    { name = "tool_search_tool_bm25"
-    , type_ = ToolSearchTool_Bm25_20251119
+toolSearchBm25 = ToolDef_SearchTool
+    { tool_search_tool = ToolSearchTool
+        { name = "tool_search_tool_bm25"
+        , type_ = ToolSearchTool_Bm25_20251119
+        }
+    , cache_control = Nothing
     }
 
 -- | Content block types (duplicated here for helper functions)
