@@ -1,3 +1,17 @@
+1.5.0:
+
+- Add Claude 5 Messages API support:
+  - `thinking.display` with summarized and omitted output modes
+  - `thinking: { "type": "disabled" }`
+  - refusal `stop_details` and `pause_turn` stop reasons
+- Add beta server-side fallback request and response types:
+  - default and explicit fallback chains
+  - fallback transition content blocks
+  - per-iteration usage
+- Add beta mid-conversation tool changes with system messages and tool
+  addition/removal content blocks
+- Add live API coverage for Claude Sonnet 5, Claude Opus 5, and Claude Fable 5
+
 1.4.0:
 
 - Expand prompt caching support:

@@ -20,11 +20,17 @@ module Claude.V1.Messages
     , inputTokensTrigger
       -- * Request routing/speed
     , Speed(..)
+    , Fallback(..)
+    , Fallbacks(..)
       -- * Thinking
     , Thinking(..)
+    , ThinkingDisplay(..)
       -- * Content types
     , Content(..)
     , ContentBlock(..)
+    , ToolChangeReference(..)
+    , FallbackInfo(..)
+    , FallbackTrigger(..)
     , TextContent(..)
     , ImageSource(..)
     , ToolUseContent(..)
@@ -34,7 +40,10 @@ module Claude.V1.Messages
     , Role(..)
       -- * Response types
     , StopReason(..)
+    , StopDetails(..)
     , Usage(..)
+    , IterationUsage(..)
+    , OutputTokensDetails(..)
     , ServerToolUseUsage(..)
       -- * Tool search response types
     , ToolReference(..)
@@ -124,16 +133,16 @@ import           Claude.V1.Tool
     , toolChoiceAny
     , toolChoiceAuto
     , toolChoiceTool
-    , withToolCacheControl
     , toolSearchBm25
     , toolSearchRegex
+    , withToolCacheControl
     )
 import qualified Data.Aeson as Aeson
 import qualified Data.Aeson.KeyMap as KeyMap
 import           Data.Time (UTCTime)
 
 -- | Role of a message participant
-data Role = User | Assistant
+data Role = User | Assistant | System
     deriving stock (Eq, Generic, Show)
 
 instance FromJSON Role where
@@ -269,6 +278,19 @@ data Content
     | Content_Tool_Result { tool_use_id :: Text, content :: Maybe Text, is_error :: Maybe Bool }
     | Content_Thinking { thinking :: Text, signature :: Text }
     | Content_Redacted_Thinking { data_ :: Text }
+    | Content_Tool_Addition
+        { tool :: ToolChangeReference
+        , cache_control :: Maybe CacheControl
+        }
+    | Content_Tool_Removal
+        { tool :: ToolChangeReference
+        , cache_control :: Maybe CacheControl
+        }
+    | Content_Fallback
+        { from_ :: FallbackInfo
+        , to :: FallbackInfo
+        , trigger :: FallbackTrigger
+        }
     deriving stock (Generic, Show)
 
 -- | Create a text content block without cache control
@@ -324,7 +346,48 @@ contentBlockToContent (ContentBlock_Thinking t sig) =
     Just Content_Thinking{ thinking = t, signature = sig }
 contentBlockToContent (ContentBlock_Redacted_Thinking d) =
     Just Content_Redacted_Thinking{ data_ = d }
+contentBlockToContent (ContentBlock_Fallback fromModel toModel fallbackTrigger) =
+    Just Content_Fallback
+        { from_ = fromModel
+        , to = toModel
+        , trigger = fallbackTrigger
+        }
 contentBlockToContent ContentBlock_Unknown{} = Nothing
+
+-- | A tool reference used by mid-conversation tool changes.
+data ToolChangeReference
+    = ToolChangeReference { name :: Text }
+    | MCPToolChangeReference { server_name :: Text, name :: Text }
+    | MCPToolsetChangeReference { server_name :: Text }
+    deriving stock (Eq, Show)
+
+instance FromJSON ToolChangeReference where
+    parseJSON = Aeson.withObject "ToolChangeReference" $ \o -> do
+        t <- o Aeson..: "type"
+        case (t :: Text) of
+            "tool_reference" -> ToolChangeReference <$> o Aeson..: "name"
+            "mcp_tool_reference" ->
+                MCPToolChangeReference
+                    <$> o Aeson..: "server_name"
+                    <*> o Aeson..: "name"
+            "mcp_toolset_reference" ->
+                MCPToolsetChangeReference <$> o Aeson..: "server_name"
+            _ -> fail $ "Unknown tool change reference type: " <> show t
+
+instance ToJSON ToolChangeReference where
+    toJSON (ToolChangeReference n) = Aeson.object
+        [ "type" Aeson..= ("tool_reference" :: Text)
+        , "name" Aeson..= n
+        ]
+    toJSON (MCPToolChangeReference serverName n) = Aeson.object
+        [ "type" Aeson..= ("mcp_tool_reference" :: Text)
+        , "server_name" Aeson..= serverName
+        , "name" Aeson..= n
+        ]
+    toJSON (MCPToolsetChangeReference serverName) = Aeson.object
+        [ "type" Aeson..= ("mcp_toolset_reference" :: Text)
+        , "server_name" Aeson..= serverName
+        ]
 
 -- | A reference to a tool found by tool search
 data ToolReference = ToolReference
@@ -492,6 +555,11 @@ data ContentBlock
         }
     | ContentBlock_Thinking { thinking :: Text, signature :: Text }
     | ContentBlock_Redacted_Thinking { data_ :: Text }
+    | ContentBlock_Fallback
+        { from_ :: FallbackInfo
+        , to :: FallbackInfo
+        , trigger :: FallbackTrigger
+        }
     | ContentBlock_Unknown { type_ :: Text, raw :: Value }
     deriving stock (Generic, Show)
 
@@ -528,6 +596,10 @@ instance FromJSON ContentBlock where
                 <*> o Aeson..: "signature"
             "redacted_thinking" -> ContentBlock_Redacted_Thinking
                 <$> o Aeson..: "data"
+            "fallback" -> ContentBlock_Fallback
+                <$> o Aeson..: "from"
+                <*> o Aeson..: "to"
+                <*> o Aeson..: "trigger"
             _ -> pure (ContentBlock_Unknown t (Aeson.Object o))
 
 instance ToJSON ContentBlock where
@@ -566,7 +638,36 @@ instance ToJSON ContentBlock where
         [ "type" Aeson..= ("redacted_thinking" :: Text)
         , "data" Aeson..= d
         ]
+    toJSON (ContentBlock_Fallback fromModel toModel fallbackTrigger) = Aeson.object
+        [ "type" Aeson..= ("fallback" :: Text)
+        , "from" Aeson..= fromModel
+        , "to" Aeson..= toModel
+        , "trigger" Aeson..= fallbackTrigger
+        ]
     toJSON (ContentBlock_Unknown _typeName rawVal) = rawVal
+
+-- | A model participating in a server-side fallback transition.
+data FallbackInfo = FallbackInfo
+    { model :: Text
+    } deriving stock (Eq, Generic, Show)
+      deriving anyclass (FromJSON, ToJSON)
+
+-- | The refusal that triggered a server-side fallback.
+data FallbackTrigger = FallbackTrigger
+    { category :: Maybe Text
+    } deriving stock (Eq, Show)
+
+instance FromJSON FallbackTrigger where
+    parseJSON = Aeson.withObject "FallbackTrigger" $ \o -> do
+        t <- o Aeson..: "type"
+        if (t :: Text) == "refusal"
+            then FallbackTrigger <$> o Aeson..:? "category"
+            else fail $ "Unknown fallback trigger type: " <> show t
+
+instance ToJSON FallbackTrigger where
+    toJSON (FallbackTrigger fallbackCategory) = Aeson.object $
+        [ "type" Aeson..= ("refusal" :: Text)
+        ] <> maybe [] (\c -> ["category" Aeson..= c]) fallbackCategory
 
 -- | A message in the conversation
 --
@@ -590,6 +691,7 @@ data StopReason
     | Max_Tokens
     | Stop_Sequence
     | Tool_Use
+    | Pause_Turn
     | Refusal
     -- ^ Model refused the request for safety reasons
     | Model_Context_Window_Exceeded
@@ -606,6 +708,27 @@ instance FromJSON StopReason where
 instance ToJSON StopReason where
     toJSON = genericToJSON stopReasonOptions
 
+-- | Structured information returned when Claude refuses a request.
+data StopDetails = StopDetails
+    { category :: Maybe Text
+    , explanation :: Maybe Text
+    } deriving stock (Eq, Show)
+
+instance FromJSON StopDetails where
+    parseJSON = Aeson.withObject "StopDetails" $ \o -> do
+        t <- o Aeson..: "type"
+        if (t :: Text) == "refusal"
+            then StopDetails
+                <$> o Aeson..:? "category"
+                <*> o Aeson..:? "explanation"
+            else fail $ "Unknown stop details type: " <> show t
+
+instance ToJSON StopDetails where
+    toJSON StopDetails{ category, explanation } = Aeson.object $
+        [ "type" Aeson..= ("refusal" :: Text)
+        ] <> maybe [] (\c -> ["category" Aeson..= c]) category
+          <> maybe [] (\e -> ["explanation" Aeson..= e]) explanation
+
 -- | Server tool use usage information (e.g., tool search requests, web search requests)
 data ServerToolUseUsage = ServerToolUseUsage
     { web_search_requests :: Maybe Natural
@@ -618,6 +741,43 @@ instance FromJSON ServerToolUseUsage where
 instance ToJSON ServerToolUseUsage where
     toJSON = genericToJSON aesonOptions
 
+-- | Breakdown of output tokens spent on internal reasoning.
+data OutputTokensDetails = OutputTokensDetails
+    { thinking_tokens :: Natural
+    } deriving stock (Eq, Generic, Show)
+      deriving anyclass (FromJSON, ToJSON)
+
+-- | Per-iteration usage returned by beta features such as server-side fallback.
+data IterationUsage = IterationUsage
+    { iteration_type :: Text
+    , iteration_model :: Maybe Text
+    , iteration_input_tokens :: Maybe Natural
+    , iteration_output_tokens :: Maybe Natural
+    , iteration_cache_creation_input_tokens :: Maybe Natural
+    , iteration_cache_read_input_tokens :: Maybe Natural
+    } deriving stock (Eq, Generic, Show)
+
+instance FromJSON IterationUsage where
+    parseJSON = Aeson.withObject "IterationUsage" $ \o ->
+        IterationUsage
+            <$> o Aeson..: "type"
+            <*> o Aeson..:? "model"
+            <*> o Aeson..:? "input_tokens"
+            <*> o Aeson..:? "output_tokens"
+            <*> o Aeson..:? "cache_creation_input_tokens"
+            <*> o Aeson..:? "cache_read_input_tokens"
+
+instance ToJSON IterationUsage where
+    toJSON IterationUsage{..} = Aeson.object $
+        [ "type" Aeson..= iteration_type
+        ] <> maybe [] (\m -> ["model" Aeson..= m]) iteration_model
+          <> maybe [] (\n -> ["input_tokens" Aeson..= n]) iteration_input_tokens
+          <> maybe [] (\n -> ["output_tokens" Aeson..= n]) iteration_output_tokens
+          <> maybe [] (\n -> ["cache_creation_input_tokens" Aeson..= n])
+            iteration_cache_creation_input_tokens
+          <> maybe [] (\n -> ["cache_read_input_tokens" Aeson..= n])
+            iteration_cache_read_input_tokens
+
 -- | Token usage information
 data Usage = Usage
     { input_tokens :: Natural
@@ -625,6 +785,11 @@ data Usage = Usage
     , cache_creation_input_tokens :: Maybe Natural
     , cache_read_input_tokens :: Maybe Natural
     , server_tool_use :: Maybe ServerToolUseUsage
+    , inference_geo :: Maybe Text
+    , output_tokens_details :: Maybe OutputTokensDetails
+    , service_tier :: Maybe Text
+    , speed :: Maybe Speed
+    , iterations :: Maybe (Vector IterationUsage)
     } deriving stock (Generic, Show)
 
 instance FromJSON Usage where
@@ -646,6 +811,7 @@ data MessageResponse = MessageResponse
     , model :: Text
     , stop_reason :: Maybe StopReason
     , stop_sequence :: Maybe Text
+    , stop_details :: Maybe StopDetails
     , usage :: Usage
     , container :: Maybe ContainerInfo
     } deriving stock (Generic, Show)
@@ -698,8 +864,8 @@ instance ToJSON OutputFormat where
 --              Good for simple tasks, classification, or high-volume use cases.
 -- * @"medium"@ — Balanced approach with moderate token savings.
 -- * @"high"@ — Full capability (the default when effort is omitted).
+-- * @"xhigh"@ — Extended capability for long-horizon work on supported models.
 -- * @"max"@ — Absolute maximum capability, no constraints on token spending.
---              Opus 4.6 only.
 --
 -- Setting @"high"@ is equivalent to not setting effort at all.
 --
@@ -721,9 +887,8 @@ instance ToJSON OutputFormat where
 -- @
 data OutputConfig = OutputConfig
     { effort :: Maybe Text
-    -- ^ Effort level: @"low"@, @"medium"@, @"high"@, or @"max"@.
+    -- ^ Effort level: @"low"@, @"medium"@, @"high"@, @"xhigh"@, or @"max"@.
     -- Controls token spend vs thoroughness. @"high"@ is the default.
-    -- @"max"@ is Opus 4.6 only.
     -- See <https://platform.claude.com/docs/en/build-with-claude/effort>
     , format :: Maybe OutputFormat
     -- ^ Structured output format (use 'jsonSchemaFormat' to construct)
@@ -848,15 +1013,66 @@ instance ToJSON Speed where
     toJSON SpeedStandard = Aeson.String "standard"
     toJSON SpeedFast = Aeson.String "fast"
 
+-- | One model in a server-side fallback chain.
+data Fallback = Fallback
+    { model :: Text
+    , max_tokens :: Maybe Natural
+    , output_config :: Maybe OutputConfig
+    , speed :: Maybe Speed
+    , thinking :: Maybe Thinking
+    } deriving stock (Eq, Generic, Show)
+
+instance FromJSON Fallback where
+    parseJSON = genericParseJSON aesonOptions
+
+instance ToJSON Fallback where
+    toJSON = genericToJSON aesonOptions
+
+-- | Server-side fallback configuration (beta).
+data Fallbacks
+    = FallbacksDefault
+    | FallbacksModels (Vector Fallback)
+    deriving stock (Eq, Show)
+
+instance FromJSON Fallbacks where
+    parseJSON (Aeson.String "default") = pure FallbacksDefault
+    parseJSON (Aeson.Array models) = FallbacksModels <$> traverse Aeson.parseJSON models
+    parseJSON _ = fail "Fallbacks must be \"default\" or an array of fallback models"
+
+instance ToJSON Fallbacks where
+    toJSON FallbacksDefault = Aeson.String "default"
+    toJSON (FallbacksModels models) = Aeson.toJSON models
+
+-- | Controls whether readable thinking summaries are returned.
+data ThinkingDisplay
+    = ThinkingSummarized
+    | ThinkingOmitted
+    deriving stock (Eq, Show)
+
+instance FromJSON ThinkingDisplay where
+    parseJSON = Aeson.withText "ThinkingDisplay" $ \t -> case t of
+        "summarized" -> pure ThinkingSummarized
+        "omitted" -> pure ThinkingOmitted
+        _ -> fail $ "Unknown thinking display: " <> show t
+
+instance ToJSON ThinkingDisplay where
+    toJSON ThinkingSummarized = Aeson.String "summarized"
+    toJSON ThinkingOmitted = Aeson.String "omitted"
+
 -- | Thinking configuration for extended thinking
 --
--- * 'ThinkingAdaptive': Let Claude decide when and how much to think (Opus 4.6+).
+-- * 'ThinkingAdaptive': Let Claude decide when and how much to think.
 --   Use the effort parameter ('effortConfig') to guide thinking depth.
+-- * 'ThinkingAdaptiveWithDisplay': Adaptive thinking with summarized or omitted output.
 -- * 'ThinkingEnabled': Enable thinking with a fixed token budget
---   (all models; deprecated on Opus 4.6).
+--   (older models only).
+-- * 'ThinkingDisabled': Disable thinking on models that support it.
 --
 -- @
--- -- Adaptive thinking (recommended for Opus 4.6)
+-- -- Adaptive thinking with readable summaries
+-- thinking = Just $ ThinkingAdaptiveWithDisplay ThinkingSummarized
+--
+-- -- Adaptive thinking with the model's default display behavior
 -- thinking = Just ThinkingAdaptive
 --
 -- -- Manual thinking with budget (older models)
@@ -864,26 +1080,52 @@ instance ToJSON Speed where
 -- @
 data Thinking
     = ThinkingAdaptive
+    | ThinkingAdaptiveWithDisplay { display :: ThinkingDisplay }
     | ThinkingEnabled { budget_tokens :: Natural }
+    | ThinkingEnabledWithDisplay
+        { budget_tokens :: Natural
+        , display :: ThinkingDisplay
+        }
+    | ThinkingDisabled
     deriving stock (Eq, Generic, Show)
 
 instance FromJSON Thinking where
     parseJSON = Aeson.withObject "Thinking" $ \o -> do
         t <- o Aeson..: "type"
         case (t :: Text) of
-            "adaptive" -> pure ThinkingAdaptive
+            "adaptive" -> do
+                display <- o Aeson..:? "display"
+                pure $ maybe ThinkingAdaptive ThinkingAdaptiveWithDisplay display
             "enabled" -> do
                 budget <- o Aeson..: "budget_tokens"
-                pure ThinkingEnabled{ budget_tokens = budget }
+                display <- o Aeson..:? "display"
+                pure $ case display of
+                    Nothing -> ThinkingEnabled{ budget_tokens = budget }
+                    Just d -> ThinkingEnabledWithDisplay
+                        { budget_tokens = budget
+                        , display = d
+                        }
+            "disabled" -> pure ThinkingDisabled
             _ -> fail $ "Unknown thinking type: " <> show t
 
 instance ToJSON Thinking where
     toJSON ThinkingAdaptive = Aeson.object
         [ "type" Aeson..= ("adaptive" :: Text) ]
+    toJSON (ThinkingAdaptiveWithDisplay thinkingDisplay) = Aeson.object
+        [ "type" Aeson..= ("adaptive" :: Text)
+        , "display" Aeson..= thinkingDisplay
+        ]
     toJSON (ThinkingEnabled budget) = Aeson.object
         [ "type" Aeson..= ("enabled" :: Text)
         , "budget_tokens" Aeson..= budget
         ]
+    toJSON (ThinkingEnabledWithDisplay budget thinkingDisplay) = Aeson.object
+        [ "type" Aeson..= ("enabled" :: Text)
+        , "budget_tokens" Aeson..= budget
+        , "display" Aeson..= thinkingDisplay
+        ]
+    toJSON ThinkingDisabled = Aeson.object
+        [ "type" Aeson..= ("disabled" :: Text) ]
 
 -- | Create a JSON schema output format
 jsonSchemaFormat :: Value -> OutputFormat
@@ -923,8 +1165,9 @@ data CreateMessage = CreateMessage
     -- ^ Output configuration: effort level and/or structured output format.
     -- Use 'effortConfig', 'jsonSchemaConfig', or construct 'OutputConfig' directly.
     , thinking :: Maybe Thinking
-    -- ^ Thinking configuration. Use 'ThinkingAdaptive' for Opus 4.6
-    -- or 'ThinkingEnabled' with @budget_tokens@ for older models.
+    -- ^ Thinking configuration. Claude 5 models default to adaptive thinking.
+    , fallbacks :: Maybe Fallbacks
+    -- ^ Server-side refusal fallback configuration (beta).
     } deriving stock (Generic, Show)
 
 instance FromJSON CreateMessage where
@@ -955,6 +1198,7 @@ _CreateMessage = CreateMessage
     , speed = Nothing
     , output_config = Nothing
     , thinking = Nothing
+    , fallbacks = Nothing
     }
 
 -- | Text delta in streaming
@@ -1004,6 +1248,7 @@ instance ToJSON ContentBlockDelta where
 data MessageDelta = MessageDelta
     { stop_reason :: Maybe StopReason
     , stop_sequence :: Maybe Text
+    , stop_details :: Maybe StopDetails
     } deriving stock (Generic, Show)
 
 instance FromJSON MessageDelta where
