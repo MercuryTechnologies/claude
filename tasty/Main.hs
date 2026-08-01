@@ -538,6 +538,33 @@ main = do
                         , Messages.cache_control = Nothing
                         })
 
+                let streamUsage = Aeson.object
+                        [ "input_tokens" Aeson..= (24 :: Int)
+                        , "output_tokens" Aeson..= (12 :: Int)
+                        , "output_tokens_details" Aeson..= Aeson.object
+                            [ "thinking_tokens" Aeson..= (8 :: Int)
+                            ]
+                        , "iterations" Aeson..=
+                            ([ Aeson.object
+                                [ "type" Aeson..= ("fallback_message" :: Text.Text)
+                                , "model" Aeson..= ("claude-sonnet-5" :: Text.Text)
+                                , "input_tokens" Aeson..= (24 :: Int)
+                                , "output_tokens" Aeson..= (12 :: Int)
+                                ]
+                             ] :: [Aeson.Value])
+                        ]
+
+                case Aeson.fromJSON streamUsage of
+                    Aeson.Success Messages.StreamUsage
+                        { Messages.stream_output_tokens_details =
+                            Just Messages.OutputTokensDetails
+                                { Messages.thinking_tokens = 8
+                                }
+                        , Messages.stream_iterations = Just [_]
+                        } -> pure ()
+                    result -> HUnit.assertFailure $
+                        "Failed to decode Claude 5 streaming usage: " <> show result
+
                 let fallbackRequest = Messages._CreateMessage
                         { Messages.model = "claude-fable-5"
                         , Messages.messages =

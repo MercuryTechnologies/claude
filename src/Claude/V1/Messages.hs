@@ -1259,14 +1259,38 @@ instance ToJSON MessageDelta where
 
 -- | Usage in streaming message_delta events
 data StreamUsage = StreamUsage
-    { output_tokens :: Natural
-    } deriving stock (Generic, Show)
+    { stream_input_tokens :: Maybe Natural
+    , output_tokens :: Natural
+    , stream_cache_creation_input_tokens :: Maybe Natural
+    , stream_cache_read_input_tokens :: Maybe Natural
+    , stream_server_tool_use :: Maybe ServerToolUseUsage
+    , stream_output_tokens_details :: Maybe OutputTokensDetails
+    , stream_iterations :: Maybe (Vector IterationUsage)
+    } deriving stock (Show)
 
 instance FromJSON StreamUsage where
-    parseJSON = genericParseJSON aesonOptions
+    parseJSON = Aeson.withObject "StreamUsage" $ \o ->
+        StreamUsage
+            <$> o Aeson..:? "input_tokens"
+            <*> o Aeson..: "output_tokens"
+            <*> o Aeson..:? "cache_creation_input_tokens"
+            <*> o Aeson..:? "cache_read_input_tokens"
+            <*> o Aeson..:? "server_tool_use"
+            <*> o Aeson..:? "output_tokens_details"
+            <*> o Aeson..:? "iterations"
 
 instance ToJSON StreamUsage where
-    toJSON = genericToJSON aesonOptions
+    toJSON StreamUsage{..} = Aeson.object $
+        [ "output_tokens" Aeson..= output_tokens
+        ] <> maybe [] (\n -> ["input_tokens" Aeson..= n]) stream_input_tokens
+          <> maybe [] (\n -> ["cache_creation_input_tokens" Aeson..= n])
+            stream_cache_creation_input_tokens
+          <> maybe [] (\n -> ["cache_read_input_tokens" Aeson..= n])
+            stream_cache_read_input_tokens
+          <> maybe [] (\u -> ["server_tool_use" Aeson..= u]) stream_server_tool_use
+          <> maybe [] (\d -> ["output_tokens_details" Aeson..= d])
+            stream_output_tokens_details
+          <> maybe [] (\is -> ["iterations" Aeson..= is]) stream_iterations
 
 -- | Streaming events for @\/v1\/messages@
 data MessageStreamEvent
