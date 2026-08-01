@@ -17,6 +17,7 @@ import qualified Claude.V1.Tool as Tool
 import qualified Control.Concurrent as Concurrent
 import qualified Control.Exception as Exception
 import qualified Data.Aeson as Aeson
+import qualified Data.Aeson.KeyMap as KeyMap
 import qualified Data.Aeson.Types as Aeson.Types
 import           Data.Foldable (toList)
 import qualified Data.IORef as IORef
@@ -507,6 +508,183 @@ main = do
                 HUnit.assertBool "Expected non-empty streamed text"
                     (not (Text.null text))
 
+    let claude5WireTypesTest =
+            HUnit.testCase "Claude 5 wire types" do
+                HUnit.assertEqual
+                    "Adaptive thinking should include display"
+                    (Aeson.object
+                        [ "type" Aeson..= ("adaptive" :: Text.Text)
+                        , "display" Aeson..= ("summarized" :: Text.Text)
+                        ])
+                    (Aeson.toJSON
+                        (Messages.ThinkingAdaptiveWithDisplay Messages.ThinkingSummarized))
+
+                HUnit.assertEqual
+                    "Disabled thinking should use the disabled wire value"
+                    (Aeson.object ["type" Aeson..= ("disabled" :: Text.Text)])
+                    (Aeson.toJSON Messages.ThinkingDisabled)
+
+                HUnit.assertEqual
+                    "Tool removal should reference a declared tool"
+                    (Aeson.object
+                        [ "type" Aeson..= ("tool_removal" :: Text.Text)
+                        , "tool" Aeson..= Aeson.object
+                            [ "type" Aeson..= ("tool_reference" :: Text.Text)
+                            , "name" Aeson..= ("get_weather" :: Text.Text)
+                            ]
+                        ])
+                    (Aeson.toJSON Messages.Content_Tool_Removal
+                        { Messages.tool = Messages.ToolChangeReference "get_weather"
+                        , Messages.cache_control = Nothing
+                        })
+
+                let streamUsage = Aeson.object
+                        [ "input_tokens" Aeson..= (24 :: Int)
+                        , "output_tokens" Aeson..= (12 :: Int)
+                        , "output_tokens_details" Aeson..= Aeson.object
+                            [ "thinking_tokens" Aeson..= (8 :: Int)
+                            ]
+                        , "iterations" Aeson..=
+                            ([ Aeson.object
+                                [ "type" Aeson..= ("fallback_message" :: Text.Text)
+                                , "model" Aeson..= ("claude-sonnet-5" :: Text.Text)
+                                , "input_tokens" Aeson..= (24 :: Int)
+                                , "output_tokens" Aeson..= (12 :: Int)
+                                ]
+                             ] :: [Aeson.Value])
+                        ]
+
+                case Aeson.fromJSON streamUsage of
+                    Aeson.Success Messages.StreamUsage
+                        { Messages.stream_output_tokens_details =
+                            Just Messages.OutputTokensDetails
+                                { Messages.thinking_tokens = 8
+                                }
+                        , Messages.stream_iterations = Just [_]
+                        } -> pure ()
+                    result -> HUnit.assertFailure $
+                        "Failed to decode Claude 5 streaming usage: " <> show result
+
+                let fallbackRequest = Messages._CreateMessage
+                        { Messages.model = "claude-fable-5"
+                        , Messages.messages =
+                            [ Messages.Message
+                                { Messages.role = Messages.User
+                                , Messages.content = [Messages.textContent "Hello"]
+                                , Messages.cache_control = Nothing
+                                }
+                            ]
+                        , Messages.fallbacks = Just Messages.FallbacksDefault
+                        }
+
+                case Aeson.toJSON fallbackRequest of
+                    Aeson.Object o ->
+                        HUnit.assertEqual
+                            "Default fallbacks should serialize as a string"
+                            (Just (Aeson.String "default"))
+                            (KeyMap.lookup "fallbacks" o)
+                    _ -> HUnit.assertFailure "CreateMessage should serialize as an object"
+
+                let refusalResponse = Aeson.object
+                        [ "id" Aeson..= ("msg_refusal" :: Text.Text)
+                        , "type" Aeson..= ("message" :: Text.Text)
+                        , "role" Aeson..= ("assistant" :: Text.Text)
+                        , "model" Aeson..= ("claude-fable-5" :: Text.Text)
+                        , "content" Aeson..= ([] :: [Aeson.Value])
+                        , "stop_reason" Aeson..= ("refusal" :: Text.Text)
+                        , "stop_sequence" Aeson..= Aeson.Null
+                        , "stop_details" Aeson..= Aeson.object
+                            [ "type" Aeson..= ("refusal" :: Text.Text)
+                            , "category" Aeson..= ("reasoning_extraction" :: Text.Text)
+                            , "explanation" Aeson..= ("Request declined" :: Text.Text)
+                            ]
+                        , "usage" Aeson..= Aeson.object
+                            [ "input_tokens" Aeson..= (12 :: Int)
+                            , "output_tokens" Aeson..= (0 :: Int)
+                            ]
+                        ]
+
+                case Aeson.fromJSON refusalResponse of
+                    Aeson.Success Messages.MessageResponse
+                        { Messages.stop_reason = Just Messages.Refusal
+                        , Messages.stop_details = Just Messages.StopDetails
+                            { Messages.category = Just "reasoning_extraction"
+                            }
+                        } -> pure ()
+                    result -> HUnit.assertFailure $
+                        "Failed to decode Claude 5 refusal response: " <> show result
+
+                let fallbackBlock = Aeson.object
+                        [ "type" Aeson..= ("fallback" :: Text.Text)
+                        , "from" Aeson..= Aeson.object
+                            [ "model" Aeson..= ("claude-fable-5" :: Text.Text)
+                            ]
+                        , "to" Aeson..= Aeson.object
+                            [ "model" Aeson..= ("claude-sonnet-5" :: Text.Text)
+                            ]
+                        , "trigger" Aeson..= Aeson.object
+                            [ "type" Aeson..= ("refusal" :: Text.Text)
+                            , "category" Aeson..= ("cyber" :: Text.Text)
+                            ]
+                        ]
+
+                case Aeson.fromJSON fallbackBlock of
+                    Aeson.Success Messages.ContentBlock_Fallback
+                        { Messages.from_ = Messages.FallbackInfo "claude-fable-5"
+                        , Messages.to = Messages.FallbackInfo "claude-sonnet-5"
+                        } ->
+                            case Messages.contentBlockToContent
+                                (Messages.ContentBlock_Fallback
+                                    { Messages.from_ =
+                                        Messages.FallbackInfo "claude-fable-5"
+                                    , Messages.to =
+                                        Messages.FallbackInfo "claude-sonnet-5"
+                                    , Messages.trigger =
+                                        Messages.FallbackTrigger (Just "cyber")
+                                    }) of
+                                Just Messages.Content_Fallback{} -> pure ()
+                                _ -> HUnit.assertFailure
+                                    "Fallback transition should be replayable"
+                    result -> HUnit.assertFailure $
+                        "Failed to decode fallback transition: " <> show result
+
+    let claude5ModelTests =
+            Tasty.testGroup "Claude 5 models" $
+                flip map ["claude-sonnet-5", "claude-opus-5", "claude-fable-5"] $ \modelName ->
+                    HUnit.testCase (Text.unpack modelName) do
+                        Messages.MessageResponse
+                            { Messages.model = responseModel
+                            , Messages.content = responseContent
+                            } <-
+                                createMessage
+                                    Messages._CreateMessage
+                                        { Messages.model = modelName
+                                        , Messages.messages =
+                                            [ Messages.Message
+                                                { Messages.role = Messages.User
+                                                , Messages.content =
+                                                    [ Messages.textContent
+                                                        "Respond with exactly: ok"
+                                                    ]
+                                                , Messages.cache_control = Nothing
+                                                }
+                                            ]
+                                        , Messages.max_tokens = 1024
+                                        , Messages.output_config =
+                                            Just (Messages.effortConfig "low")
+                                        , Messages.thinking = Just
+                                            (Messages.ThinkingAdaptiveWithDisplay
+                                                Messages.ThinkingOmitted)
+                                        }
+
+                        HUnit.assertEqual
+                            "Response should come from the requested model"
+                            modelName
+                            responseModel
+                        HUnit.assertBool
+                            "Response should have content"
+                            (not (null responseContent))
+
     let promptCachingLiveTest =
             HUnit.testCase "Create message - prompt caching" do
                 let largeSystemText =
@@ -877,6 +1055,8 @@ main = do
             , strictToolUseTest
             , adaptiveThinkingTest
             , adaptiveThinkingStreamingTest
+            , claude5WireTypesTest
+            , claude5ModelTests
             , promptCachingLiveTest
             , inferenceGeoLiveTest
             , compactionLiveTest

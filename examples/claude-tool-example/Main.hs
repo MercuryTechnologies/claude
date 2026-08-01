@@ -190,5 +190,7 @@ printContent (Messages.ContentBlock_Thinking{}) =
     Text.IO.putStrLn "[Thinking]"
 printContent (Messages.ContentBlock_Redacted_Thinking{}) =
     Text.IO.putStrLn "[Redacted thinking]"
+printContent (Messages.ContentBlock_Fallback{}) =
+    Text.IO.putStrLn "[Fallback]"
 printContent (Messages.ContentBlock_Unknown{ Messages.type_ = t }) =
     Text.IO.putStrLn $ "[Unknown block type: " <> t <> "]"

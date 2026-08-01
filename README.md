@@ -24,7 +24,7 @@ main = do
     let Methods{ createMessage } = makeMethods clientEnv (Text.pack key) (Just "2023-06-01")
 
     MessageResponse{ content } <- createMessage _CreateMessage
-        { model = "claude-sonnet-4-5-20250929"
+        { model = "claude-sonnet-5"
         , messages = [ Message{ role = User, content = [ textContent "Hello!" ] } ]
         , max_tokens = 1024
         }
@@ -45,7 +45,7 @@ The bindings support prompt caching at multiple levels:
 
 ```haskell
 MessageResponse{ usage } <- createMessage _CreateMessage
-    { model = "claude-sonnet-4-5-20250929"
+    { model = "claude-sonnet-5"
     , max_tokens = 1024
     , cache_control = Just (ephemeralCacheWithTTLDuration "1h")
     , system = Just $ systemBlocks
